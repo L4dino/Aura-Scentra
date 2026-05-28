@@ -9,8 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TrocasDevolucoesRouteImport } from './routes/trocas-devolucoes'
 import { Route as SobreRouteImport } from './routes/sobre'
+import { Route as PrazoEntregaRouteImport } from './routes/prazo-entrega'
+import { Route as PoliticaPrivacidadeRouteImport } from './routes/politica-privacidade'
 import { Route as NhoguistaRouteImport } from './routes/nhoguista'
+import { Route as FormasPagamentoRouteImport } from './routes/formas-pagamento'
 import { Route as FavoritosRouteImport } from './routes/favoritos'
 import { Route as ContactosRouteImport } from './routes/contactos'
 import { Route as ContaRouteImport } from './routes/conta'
@@ -21,14 +25,34 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProdutoIdRouteImport } from './routes/produto.$id'
 
+const TrocasDevolucoesRoute = TrocasDevolucoesRouteImport.update({
+  id: '/trocas-devolucoes',
+  path: '/trocas-devolucoes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SobreRoute = SobreRouteImport.update({
   id: '/sobre',
   path: '/sobre',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrazoEntregaRoute = PrazoEntregaRouteImport.update({
+  id: '/prazo-entrega',
+  path: '/prazo-entrega',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PoliticaPrivacidadeRoute = PoliticaPrivacidadeRouteImport.update({
+  id: '/politica-privacidade',
+  path: '/politica-privacidade',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NhoguistaRoute = NhoguistaRouteImport.update({
   id: '/nhoguista',
   path: '/nhoguista',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FormasPagamentoRoute = FormasPagamentoRouteImport.update({
+  id: '/formas-pagamento',
+  path: '/formas-pagamento',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FavoritosRoute = FavoritosRouteImport.update({
@@ -86,8 +110,12 @@ export interface FileRoutesByFullPath {
   '/conta': typeof ContaRoute
   '/contactos': typeof ContactosRoute
   '/favoritos': typeof FavoritosRoute
+  '/formas-pagamento': typeof FormasPagamentoRoute
   '/nhoguista': typeof NhoguistaRoute
+  '/politica-privacidade': typeof PoliticaPrivacidadeRoute
+  '/prazo-entrega': typeof PrazoEntregaRoute
   '/sobre': typeof SobreRoute
+  '/trocas-devolucoes': typeof TrocasDevolucoesRoute
   '/produto/$id': typeof ProdutoIdRoute
 }
 export interface FileRoutesByTo {
@@ -99,8 +127,12 @@ export interface FileRoutesByTo {
   '/conta': typeof ContaRoute
   '/contactos': typeof ContactosRoute
   '/favoritos': typeof FavoritosRoute
+  '/formas-pagamento': typeof FormasPagamentoRoute
   '/nhoguista': typeof NhoguistaRoute
+  '/politica-privacidade': typeof PoliticaPrivacidadeRoute
+  '/prazo-entrega': typeof PrazoEntregaRoute
   '/sobre': typeof SobreRoute
+  '/trocas-devolucoes': typeof TrocasDevolucoesRoute
   '/produto/$id': typeof ProdutoIdRoute
 }
 export interface FileRoutesById {
@@ -113,8 +145,12 @@ export interface FileRoutesById {
   '/conta': typeof ContaRoute
   '/contactos': typeof ContactosRoute
   '/favoritos': typeof FavoritosRoute
+  '/formas-pagamento': typeof FormasPagamentoRoute
   '/nhoguista': typeof NhoguistaRoute
+  '/politica-privacidade': typeof PoliticaPrivacidadeRoute
+  '/prazo-entrega': typeof PrazoEntregaRoute
   '/sobre': typeof SobreRoute
+  '/trocas-devolucoes': typeof TrocasDevolucoesRoute
   '/produto/$id': typeof ProdutoIdRoute
 }
 export interface FileRouteTypes {
@@ -128,8 +164,12 @@ export interface FileRouteTypes {
     | '/conta'
     | '/contactos'
     | '/favoritos'
+    | '/formas-pagamento'
     | '/nhoguista'
+    | '/politica-privacidade'
+    | '/prazo-entrega'
     | '/sobre'
+    | '/trocas-devolucoes'
     | '/produto/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -141,8 +181,12 @@ export interface FileRouteTypes {
     | '/conta'
     | '/contactos'
     | '/favoritos'
+    | '/formas-pagamento'
     | '/nhoguista'
+    | '/politica-privacidade'
+    | '/prazo-entrega'
     | '/sobre'
+    | '/trocas-devolucoes'
     | '/produto/$id'
   id:
     | '__root__'
@@ -154,8 +198,12 @@ export interface FileRouteTypes {
     | '/conta'
     | '/contactos'
     | '/favoritos'
+    | '/formas-pagamento'
     | '/nhoguista'
+    | '/politica-privacidade'
+    | '/prazo-entrega'
     | '/sobre'
+    | '/trocas-devolucoes'
     | '/produto/$id'
   fileRoutesById: FileRoutesById
 }
@@ -168,13 +216,24 @@ export interface RootRouteChildren {
   ContaRoute: typeof ContaRoute
   ContactosRoute: typeof ContactosRoute
   FavoritosRoute: typeof FavoritosRoute
+  FormasPagamentoRoute: typeof FormasPagamentoRoute
   NhoguistaRoute: typeof NhoguistaRoute
+  PoliticaPrivacidadeRoute: typeof PoliticaPrivacidadeRoute
+  PrazoEntregaRoute: typeof PrazoEntregaRoute
   SobreRoute: typeof SobreRoute
+  TrocasDevolucoesRoute: typeof TrocasDevolucoesRoute
   ProdutoIdRoute: typeof ProdutoIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/trocas-devolucoes': {
+      id: '/trocas-devolucoes'
+      path: '/trocas-devolucoes'
+      fullPath: '/trocas-devolucoes'
+      preLoaderRoute: typeof TrocasDevolucoesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sobre': {
       id: '/sobre'
       path: '/sobre'
@@ -182,11 +241,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SobreRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/prazo-entrega': {
+      id: '/prazo-entrega'
+      path: '/prazo-entrega'
+      fullPath: '/prazo-entrega'
+      preLoaderRoute: typeof PrazoEntregaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/politica-privacidade': {
+      id: '/politica-privacidade'
+      path: '/politica-privacidade'
+      fullPath: '/politica-privacidade'
+      preLoaderRoute: typeof PoliticaPrivacidadeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/nhoguista': {
       id: '/nhoguista'
       path: '/nhoguista'
       fullPath: '/nhoguista'
       preLoaderRoute: typeof NhoguistaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/formas-pagamento': {
+      id: '/formas-pagamento'
+      path: '/formas-pagamento'
+      fullPath: '/formas-pagamento'
+      preLoaderRoute: typeof FormasPagamentoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/favoritos': {
@@ -264,8 +344,12 @@ const rootRouteChildren: RootRouteChildren = {
   ContaRoute: ContaRoute,
   ContactosRoute: ContactosRoute,
   FavoritosRoute: FavoritosRoute,
+  FormasPagamentoRoute: FormasPagamentoRoute,
   NhoguistaRoute: NhoguistaRoute,
+  PoliticaPrivacidadeRoute: PoliticaPrivacidadeRoute,
+  PrazoEntregaRoute: PrazoEntregaRoute,
   SobreRoute: SobreRoute,
+  TrocasDevolucoesRoute: TrocasDevolucoesRoute,
   ProdutoIdRoute: ProdutoIdRoute,
 }
 export const routeTree = rootRouteImport

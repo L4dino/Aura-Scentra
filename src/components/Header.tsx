@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { ShoppingBag, Heart, User, Menu, X } from "lucide-react";
+import { ShoppingBag, Heart, Menu, X, Sun, Moon } from "lucide-react";
 import { useState } from "react";
 import { useCart } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
+import { useTheme } from "@/lib/theme";
 
 const NAV = [
   { to: "/", label: "Início" },
@@ -15,6 +16,7 @@ const NAV = [
 export function Header() {
   const count = useCart((s) => s.count());
   const { user, profile } = useAuth();
+  const { theme, toggle } = useTheme();
   const [open, setOpen] = useState(false);
 
   return (
@@ -118,6 +120,16 @@ export function Header() {
                 Admin
               </Link>
             )}
+            <button
+              onClick={toggle}
+              className="mt-2 flex items-center justify-between rounded-lg border border-border bg-card px-3 py-3 text-sm"
+            >
+              <span className="flex items-center gap-2 text-foreground/85">
+                {theme === "dark" ? <Moon className="h-4 w-4 text-gold" /> : <Sun className="h-4 w-4 text-gold" />}
+                Tema: {theme === "dark" ? "Escuro" : "Claro"}
+              </span>
+              <span className="text-[10px] uppercase tracking-widest text-gold">Alternar</span>
+            </button>
           </nav>
         </div>
       )}

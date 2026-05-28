@@ -1,252 +1,288 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
-import { NHOGUISTA_STATUS_LABEL, parseNhoguista } from "@/lib/nhoguista";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Nhoguista } from "@/lib/types";
+import type { Nhoguista, Produto, Pedido } from "@/lib/types";
+import { formatMZN } from "@/lib/format";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+import { Copy, Share2, Link2, TrendingUp, Wallet, Package, Clock, Phone } from "lucide-react";
+import { WHATSAPP_NUMBER } from "@/lib/supabase";
 
 export const Route = createFileRoute("/nhoguista")({ component: Page });
 
-async function resolveUser() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.user) return session.user;
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
-}
+const PROVINCIAS = ["Maputo","Matola","Gaza","Inhambane","Sofala","Manica","Tete","Zambézia","Nampula","Cabo Delgado","Niassa"];
 
 function Page() {
-  const { user: ctxUser, loading: authLoading } = useAuth();
+  const { user, loading } = useAuth();
   const [n, setN] = useState<Nhoguista | null>(null);
-  const [pageLoading, setPageLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [needsLogin, setNeedsLogin] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [telefone, setTelefone] = useState("");
-  const [provincia, setProvincia] = useState("");
+  const [checking, setChecking] = useState(true);
 
-  const fetchNhoguista = useCallback(async (uid: string) => {
-    const { data, error } = await supabase
-      .from("nhoguistas")
-      .select("*")
-      .eq("user_id", uid)
-      .maybeSingle();
+  useEffect(() => {
+    if (loading) return;
+    if (!user) { setChecking(false); return; }
+    supabase.from("nhoguistas").select("*").eq("user_id", user.id).maybeSingle()
+      .then(({ data }) => { setN(data as Nhoguista | null); setChecking(false); });
+  }, [user, loading]);
 
-    if (error) {
-      setLoadError(error.message);
-      return null;
-    }
-    setLoadError(null);
-    return parseNhoguista(data as Nhoguista | null);
-  }, []);
+  if (loading || checking) return <div className="p-20 text-center text-muted-foreground">A carregar…</div>;
 
-  const reload = useCallback(
-    async (uid: string, silent = false) => {
-      if (!silent) setRefreshing(true);
-      const row = await fetchNhoguista(uid);
-      setN(row);
-      if (!silent) setRefreshing(false);
-      return row;
-    },
-    [fetchNhoguista],
+  if (!user) return (
+    <div className="mx-auto max-w-2xl px-4 py-20 text-center">
+      <h1 className="font-display text-4xl">Programa Nhoguista</h1>
+      <p className="mt-3 text-muted-foreground">Ganhe comissões revendendo perfumes AURA SCENTRA. Inicie sessão para se candidatar.</p>
+      <Link to="/auth" className="mt-6 inline-block rounded-md bg-gold px-6 py-3 text-sm font-semibold uppercase tracking-widest text-primary-foreground">Entrar</Link>
+    </div>
   );
 
-  useEffect(() => {
-    if (authLoading) return;
+  if (!n) return <Apply userId={user.id} onCreated={setN} />;
+  return <Dashboard n={n} />;
+}
 
-    let cancelled = false;
-
-    (async () => {
-      setPageLoading(true);
-      setNeedsLogin(false);
-      const user = ctxUser ?? (await resolveUser());
-      if (cancelled) return;
-
-      if (!user) {
-        setNeedsLogin(true);
-        setPageLoading(false);
-        return;
-      }
-
-      setUserId(user.id);
-      const row = await fetchNhoguista(user.id);
-      if (!cancelled) {
-        setN(row);
-        setPageLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ctxUser, authLoading, fetchNhoguista]);
-
-  // Actualizar automaticamente enquanto estiver pendente
-  useEffect(() => {
-    if (!userId || n?.status !== "pendente") return;
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void reload(userId, true);
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    const interval = setInterval(() => void reload(userId, true), 12000);
-
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      clearInterval(interval);
-    };
-  }, [userId, n?.status, reload]);
-
-  if (authLoading || pageLoading) {
-    return <div className="p-20 text-center text-muted-foreground">A carregar…</div>;
-  }
-
-  if (needsLogin) {
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-20 text-center">
-        <h1 className="font-display text-4xl">Programa Nhoguista</h1>
-        <p className="mt-3 text-muted-foreground">
-          Ganhe comissões revendendo perfumes AURA SCENTRA. Entre na sua conta para se candidatar.
-        </p>
-        <Link
-          to="/auth"
-          search={{ redirect: "/nhoguista" }}
-          className="mt-6 inline-block rounded-md bg-gold px-6 py-3 text-sm font-semibold uppercase tracking-widest text-primary-foreground"
-        >
-          Entrar
-        </Link>
-      </div>
-    );
-  }
-
-  if (!userId) return null;
+function Apply({ userId, onCreated }: { userId: string; onCreated: (n: Nhoguista) => void }) {
+  const [telefone, setTelefone] = useState("");
+  const [provincia, setProvincia] = useState("");
+  const [tipo, setTipo] = useState<"sem_stock" | "com_stock">("sem_stock");
+  const [busy, setBusy] = useState(false);
 
   const apply = async () => {
-    if (!telefone.trim() || !provincia.trim()) {
-      toast.error("Preencha telefone e província");
-      return;
-    }
-    const user = ctxUser ?? (await resolveUser());
-    if (!user) {
-      toast.error("Sessão expirada. Entre novamente.");
-      setNeedsLogin(true);
-      return;
-    }
-    const codigo = (user.email?.split("@")[0] ?? "rev") + "-" + Math.random().toString(36).slice(2, 6);
+    if (!telefone || !provincia) return toast.error("Preencha todos os campos");
+    setBusy(true);
+    const codigo = "REV-" + Math.random().toString(36).slice(2, 7).toUpperCase();
+    // sem_stock = auto-aprovado (dashboard de partilha). com_stock = pendente (admin contacta).
+    const status = tipo === "sem_stock" ? "aprovado" : "pendente";
     const { data, error } = await supabase
       .from("nhoguistas")
-      .insert({ user_id: user.id, codigo, telefone: telefone.trim(), provincia: provincia.trim(), status: "pendente" })
+      .insert({ user_id: userId, codigo, telefone, provincia, status })
       .select()
       .single();
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    setN(parseNhoguista(data as Nhoguista));
-    toast.success("Candidatura enviada");
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    onCreated(data as Nhoguista);
+    toast.success(
+      tipo === "sem_stock"
+        ? "Bem-vindo Nhoguista! O seu painel está pronto."
+        : "Candidatura enviada — o administrador entrará em contacto.",
+    );
   };
 
-  if (n) {
-    const aprovado = n.status === "aprovado";
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const link = aprovado ? `${origin}/?ref=${n.codigo}` : "";
-    const statusLabel = NHOGUISTA_STATUS_LABEL[n.status];
-
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-16">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="font-display text-4xl">Painel Nhoguista</h1>
+  return (
+    <div className="mx-auto max-w-md px-4 py-16">
+      <h1 className="font-display text-3xl">Candidatar a Nhoguista</h1>
+      <p className="mt-2 text-sm text-muted-foreground">Preencha os dados para se tornar revendedor oficial.</p>
+      <div className="mt-6 space-y-3 rounded-xl border border-border/60 bg-card p-6">
+        <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={() => reload(userId)}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-gold disabled:opacity-50"
+            onClick={() => setTipo("sem_stock")}
+            className={`rounded-md border-2 px-3 py-3 text-left text-xs transition ${tipo === "sem_stock" ? "border-gold bg-gold/5" : "border-border bg-background/40"}`}
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-            Actualizar
+            <p className="font-semibold uppercase tracking-widest text-gold">Sem stock</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">Partilha links e ganha comissão. Acesso imediato.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTipo("com_stock")}
+            className={`rounded-md border-2 px-3 py-3 text-left text-xs transition ${tipo === "com_stock" ? "border-gold bg-gold/5" : "border-border bg-background/40"}`}
+          >
+            <p className="font-semibold uppercase tracking-widest text-gold">Com stock</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">Recebe produtos para revender. Admin contacta em 48h.</p>
           </button>
         </div>
+        <input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="Telefone (ex: 84xxxxxxx)" className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm" />
+        <select value={provincia} onChange={(e) => setProvincia(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm">
+          <option value="">Província</option>
+          {PROVINCIAS.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <button onClick={apply} disabled={busy} className="w-full rounded-md bg-gold px-6 py-3 text-sm font-semibold uppercase tracking-widest text-primary-foreground disabled:opacity-60">
+          {busy ? "A enviar…" : "Candidatar"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
-        {loadError && (
-          <p className="mt-4 rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            Não foi possível carregar o estado: {loadError}
+function Dashboard({ n }: { n: Nhoguista }) {
+  const [tab, setTab] = useState<"produtos" | "pedidos">("produtos");
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const storeLink = `${origin}/?ref=${n.codigo}`;
+
+  useEffect(() => {
+    supabase.from("produtos").select("*").order("created_at", { ascending: false })
+      .then(({ data }) => setProdutos((data ?? []) as Produto[]));
+    supabase.from("pedidos").select("*").eq("nhoguista_codigo", n.codigo).order("created_at", { ascending: false })
+      .then(({ data }) => setPedidos((data ?? []) as Pedido[]));
+  }, [n.codigo]);
+
+  const stats = useMemo(() => {
+    const totalVendas = pedidos.reduce((s, p) => s + p.total, 0);
+    const totalComissao = pedidos.reduce((sum, p) => {
+      return sum + p.items.reduce((s, it) => {
+        const prod = produtos.find((pr) => pr.id === it.id);
+        return s + (prod?.comissao_valor ?? 0) * it.qty;
+      }, 0);
+    }, 0);
+    return { totalVendas, totalComissao, qtd: pedidos.length };
+  }, [pedidos, produtos]);
+
+  const copy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copiado`);
+  };
+
+  const share = (title: string, url: string) => {
+    if (typeof navigator !== "undefined" && navigator.share) {
+      navigator.share({ title, url, text: `${title} — AURA SCENTRA` }).catch(() => copy(url, "Link"));
+    } else {
+      copy(url, "Link");
+    }
+  };
+
+  if (n.status !== "aprovado") {
+    const created = new Date(n.created_at).getTime();
+    const hrs = (Date.now() - created) / 36e5;
+    const past48h = hrs >= 48;
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-16">
+        <h1 className="font-display text-4xl">Nhoguista com stock</h1>
+        <div className="mt-6 rounded-xl border border-gold/30 bg-gold/5 p-6">
+          <p className="inline-flex items-center gap-2 text-sm">
+            <Clock className="h-4 w-4 text-gold" />
+            <span>Estado: <span className="font-semibold text-gold uppercase">{n.status}</span></span>
           </p>
-        )}
-
-        <div className="mt-6 rounded-xl border border-border/60 bg-card p-6 space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm text-muted-foreground">Estado da candidatura</span>
-            <span
-              className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-widest ${
-                n.status === "aprovado"
-                  ? "bg-green-500/15 text-green-600"
-                  : n.status === "rejeitado"
-                    ? "bg-destructive/15 text-destructive"
-                    : "bg-gold/15 text-gold"
-              }`}
-            >
-              {statusLabel}
-            </span>
-          </div>
-
-          {n.status === "aprovado" && (
-            <div className="rounded-lg border border-gold/30 bg-gold/5 p-4 text-sm">
-              <p className="font-medium text-gold">Parabéns! A sua candidatura foi aprovada.</p>
-              <p className="mt-1 text-muted-foreground">
-                Partilhe o link abaixo. Quando alguém comprar com o seu código, ganha comissão.
-              </p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            A sua candidatura foi recebida. O administrador entrará em contacto consigo dentro de <span className="text-gold font-semibold">48 horas</span> para combinar a entrega dos produtos.
+          </p>
+          {past48h && (
+            <div className="mt-5 rounded-md border border-gold/40 bg-background/60 p-4">
+              <p className="text-xs uppercase tracking-widest text-gold">Já passaram 48h?</p>
+              <p className="mt-1 text-sm">Contacte o administrador diretamente:</p>
+              <a
+                href={`https://wa.me/258${WHATSAPP_NUMBER.replace(/\D/g, "")}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center gap-2 rounded-md bg-gold px-4 py-2 text-sm font-semibold text-primary-foreground"
+              >
+                <Phone className="h-4 w-4" /> +258 {WHATSAPP_NUMBER}
+              </a>
             </div>
           )}
-
-          {n.status === "pendente" && (
-            <p className="text-sm text-muted-foreground">
-              A aguardar aprovação do administrador. O link da loja e o código de partilha só ficam disponíveis depois da confirmação.
-              Esta página actualiza automaticamente — ou clique em «Actualizar».
-            </p>
-          )}
-
-          {n.status === "rejeitado" && (
-            <p className="text-sm text-destructive">
-              A sua candidatura não foi aprovada. Contacte-nos se tiver dúvidas.
-            </p>
-          )}
-
-          {aprovado && (
-            <>
-              <p>
-                <span className="text-sm text-muted-foreground">Código: </span>
-                <span className="text-gold font-medium">{n.codigo}</span>
-              </p>
-              <div>
-                <p className="text-sm text-muted-foreground">Link da loja para partilhar:</p>
-                <code className="mt-1 block break-all rounded bg-background p-3 text-xs text-gold">{link}</code>
-              </div>
-            </>
-          )}
         </div>
-        <Link to="/conta" className="mt-6 inline-block text-sm text-gold hover:underline">
-          ← Voltar à conta
-        </Link>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-md px-4 py-16">
-      <h1 className="font-display text-3xl">Candidatar a Nhoguista</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Preencha os dados abaixo para enviar a sua candidatura.</p>
-      <div className="mt-6 space-y-3 rounded-xl border border-border/60 bg-card p-6">
-        <input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="Telefone" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
-        <input value={provincia} onChange={(e) => setProvincia(e.target.value)} placeholder="Província" className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
-        <button type="button" onClick={apply} className="w-full rounded-md bg-gold px-6 py-3 text-sm font-semibold uppercase tracking-widest text-primary-foreground">
-          Candidatar
-        </button>
+    <div className="mx-auto max-w-7xl px-4 py-10">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-gold">Nhoguista AURA</p>
+          <h1 className="mt-1 font-display text-4xl">Painel</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Código: <span className="font-mono text-gold">{n.codigo}</span></p>
+        </div>
       </div>
-      <Link to="/conta" className="mt-4 inline-block text-sm text-muted-foreground hover:text-gold">
-        ← Voltar à conta
-      </Link>
+
+      {/* Stats */}
+      <div className="mt-8 grid gap-3 sm:grid-cols-3">
+        <Stat icon={<Package className="h-4 w-4" />} label="Pedidos" value={String(stats.qtd)} />
+        <Stat icon={<TrendingUp className="h-4 w-4" />} label="Vendas" value={formatMZN(stats.totalVendas)} />
+        <Stat icon={<Wallet className="h-4 w-4" />} label="Comissão" value={formatMZN(stats.totalComissao)} highlight />
+      </div>
+
+      {/* Link geral da loja */}
+      <div className="mt-6 rounded-xl border border-gold/30 bg-gradient-to-r from-gold/10 to-transparent p-5">
+        <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-gold">
+          <Link2 className="h-4 w-4" /> Link geral da loja
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">Partilhe este link para ganhar comissão em qualquer compra.</p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <code className="flex-1 truncate rounded bg-background/60 px-3 py-2 text-xs text-gold">{storeLink}</code>
+          <button onClick={() => copy(storeLink, "Link")} className="inline-flex items-center gap-1 rounded-md border border-gold/40 px-3 py-2 text-xs text-gold hover:bg-gold/10">
+            <Copy className="h-3.5 w-3.5" /> Copiar
+          </button>
+          <button onClick={() => share("AURA SCENTRA", storeLink)} className="inline-flex items-center gap-1 rounded-md bg-gold px-3 py-2 text-xs font-semibold text-primary-foreground">
+            <Share2 className="h-3.5 w-3.5" /> Partilhar
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="mt-8 flex gap-2 border-b border-border">
+        <TabBtn active={tab === "produtos"} onClick={() => setTab("produtos")}>Catálogo & partilha</TabBtn>
+        <TabBtn active={tab === "pedidos"} onClick={() => setTab("pedidos")}>Os meus pedidos</TabBtn>
+      </div>
+
+      {tab === "produtos" && (
+        <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {produtos.map((p) => {
+            const link = `${origin}/produto/${p.id}?ref=${n.codigo}`;
+            return (
+              <div key={p.id} className="flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card">
+                <div className="aspect-square overflow-hidden bg-black/40">
+                  {p.imagem_url && <img src={p.imagem_url} alt={p.nome} className="h-full w-full object-cover" />}
+                </div>
+                <div className="flex flex-1 flex-col gap-2 p-4">
+                  <h3 className="font-display text-lg leading-tight">{p.nome}</h3>
+                  <p className="text-xs text-muted-foreground">{p.marca}</p>
+                  <div className="mt-1 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gold">{formatMZN(p.preco)}</span>
+                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-widest text-emerald-400">
+                      Comissão {formatMZN(p.comissao_valor ?? 0)}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button onClick={() => copy(link, "Link do produto")} className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-2 text-[11px] uppercase tracking-widest text-muted-foreground hover:border-gold hover:text-gold">
+                      <Copy className="h-3.5 w-3.5" /> Copiar
+                    </button>
+                    <button onClick={() => share(p.nome, link)} className="inline-flex items-center justify-center gap-1 rounded-md bg-gold px-2 py-2 text-[11px] font-semibold uppercase tracking-widest text-primary-foreground">
+                      <Share2 className="h-3.5 w-3.5" /> Partilhar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === "pedidos" && (
+        <div className="mt-6 space-y-2">
+          {pedidos.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Ainda sem pedidos com o seu código.</p>}
+          {pedidos.map((p) => {
+            const comissao = p.items.reduce((s, it) => {
+              const prod = produtos.find((pr) => pr.id === it.id);
+              return s + (prod?.comissao_valor ?? 0) * it.qty;
+            }, 0);
+            return (
+              <div key={p.id} className="rounded-lg border border-border/60 bg-card p-4 text-sm">
+                <div className="flex items-center justify-between">
+                  <p className="font-medium">{p.nome_cliente}</p>
+                  <span className="text-gold">{formatMZN(p.total)}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{new Date(p.created_at).toLocaleString("pt-MZ")} • {p.localizacao}</p>
+                <p className="mt-1 text-xs">{p.items.map((i) => `${i.nome} x${i.qty}`).join(", ")}</p>
+                <p className="mt-2 text-xs text-emerald-400">Sua comissão: <span className="font-semibold">{formatMZN(comissao)}</span></p>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
+  );
+}
+
+function Stat({ icon, label, value, highlight }: { icon: React.ReactNode; label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-xl border p-4 ${highlight ? "border-gold/40 bg-gold/5" : "border-border/60 bg-card"}`}>
+      <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">{icon}{label}</div>
+      <p className={`mt-2 text-2xl font-display ${highlight ? "text-gold" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className={`px-4 py-2 text-sm uppercase tracking-widest transition ${active ? "border-b-2 border-gold text-gold" : "text-muted-foreground hover:text-foreground"}`}>{children}</button>
   );
 }

@@ -3,6 +3,7 @@ import {
   Outlet,
   Link,
   createRootRouteWithContext,
+  useRouter,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
@@ -12,9 +13,9 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { Toaster } from "sonner";
 import { useEffect } from "react";
-import { isCodigoNhoguistaAprovado } from "@/lib/nhoguista";
-import { useCart, useReferral } from "@/lib/store";
+import { useReferral } from "@/lib/store";
 import { AuthProvider } from "@/lib/auth";
+import { ThemeProvider, ThemePrompt, useTheme } from "@/lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -40,35 +41,32 @@ function NotFoundComponent() {
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
+  const router = useRouter();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          Não foi possível carregar a página
+          This page didn't load
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Ocorreu um erro inesperado. Tente actualizar ou volte à página inicial.
+          Something went wrong on our end. You can try refreshing or head back home.
         </p>
-        {import.meta.env.DEV && (
-          <p className="mt-3 break-all text-xs text-destructive">{error.message}</p>
-        )}
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
-            type="button"
             onClick={() => {
+              router.invalidate();
               reset();
-              window.location.reload();
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Tentar novamente
+            Try again
           </button>
           <a
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            Ir ao início
+            Go home
           </a>
         </div>
       </div>
@@ -87,6 +85,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:title", content: "AURA SCENTRA — Perfumes Premium" },
       { property: "og:description", content: "Perfumes premium originais em Moçambique." },
       { property: "og:type", content: "website" },
+      { property: "og:site_name", content: "AURA SCENTRA" },
+      // 👇 Substituir o URL abaixo pela imagem real de partilha (Open Graph)
+      { property: "og:image", content: "COLE_AQUI_A_URL_DA_IMAGEM" },
+      { name: "twitter:image", content: "COLE_AQUI_A_URL_DA_IMAGEM" },
       { name: "twitter:card", content: "summary" },
     ],
     links: [
@@ -94,6 +96,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
+      // 👇 Substituir o href abaixo pelo ícone real (favicon) do site
+      { rel: "icon", href: "COLE_AQUI_A_URL_DO_ICONE" },
+      { rel: "apple-touch-icon", href: "COLE_AQUI_A_URL_DO_ICONE" },
     ],
   }),
   shellComponent: RootShell,
@@ -121,28 +126,32 @@ function RootComponent() {
   const setRef = useReferral((s) => s.setRef);
 
   useEffect(() => {
-    useCart.persist.rehydrate();
-    useReferral.persist.rehydrate();
+    if (typeof window === "undefined") return;
     const p = new URLSearchParams(window.location.search);
     const r = p.get("ref");
-    if (!r) return;
-    void isCodigoNhoguistaAprovado(r).then((ok) => {
-      if (ok) setRef(r);
-    });
+    if (r) setRef(r);
   }, [setRef]);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <div className="flex min-h-screen flex-col">
-          <Header />
-          <main className="flex-1">
-            <Outlet />
-          </main>
-          <Footer />
-        </div>
-        <Toaster theme="dark" position="top-center" richColors />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <div className="flex min-h-screen flex-col">
+            <Header />
+            <main className="flex-1">
+              <Outlet />
+            </main>
+            <Footer />
+          </div>
+          <ToasterThemed />
+          <ThemePrompt />
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
+}
+
+function ToasterThemed() {
+  const { theme } = useTheme();
+  return <Toaster theme={theme} position="top-center" richColors />;
 }

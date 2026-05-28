@@ -1,82 +1,69 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { supabase } from "./supabase";
 import type { Profile } from "./types";
 import type { Session } from "@supabase/supabase-js";
+import { useCart } from "./store";
 
-type AuthContextValue = {
+interface AuthCtx {
   session: Session | null;
   user: Session["user"] | null;
   profile: Profile | null;
   loading: boolean;
-};
+  refreshProfile: () => Promise<void>;
+}
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+const Ctx = createContext<AuthCtx>({
+  session: null,
+  user: null,
+  profile: null,
+  loading: true,
+  refreshProfile: async () => {},
+});
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const loadProfile = async (uid: string) => {
+    const { data } = await supabase.from("profiles").select("*").eq("id", uid).maybeSingle();
+    setProfile(data as Profile | null);
+  };
+
   useEffect(() => {
-    let mounted = true;
-
-    const loadProfile = async (userId: string) => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .maybeSingle();
-      if (mounted) setProfile((data as Profile | null) ?? null);
-    };
-
-    const applySession = (next: Session | null) => {
-      if (!mounted) return;
-      setSession(next);
-      if (next?.user) void loadProfile(next.user.id);
-      else setProfile(null);
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s);
+      useCart.getState().setOwner(s?.user?.id ?? null);
+      if (s?.user) {
+        setTimeout(() => { loadProfile(s.user.id); }, 0);
+      } else {
+        setProfile(null);
+      }
+    });
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      useCart.getState().setOwner(data.session?.user?.id ?? null);
+      if (data.session?.user) loadProfile(data.session.user.id);
       setLoading(false);
-    };
-
-    supabase.auth.getSession().then(({ data: { session: initial } }) => {
-      applySession(initial);
     });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, next) => {
-      applySession(next);
-    });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    return () => sub.subscription.unsubscribe();
   }, []);
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      session,
-      user: session?.user ?? null,
-      profile,
-      loading,
-    }),
-    [session, profile, loading],
+  return (
+    <Ctx.Provider
+      value={{
+        session,
+        user: session?.user ?? null,
+        profile,
+        loading,
+        refreshProfile: async () => { if (session?.user) await loadProfile(session.user.id); },
+      }}
+    >
+      {children}
+    </Ctx.Provider>
   );
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth deve ser usado dentro de AuthProvider");
-  }
-  return ctx;
+export function useAuth() {
+  return useContext(Ctx);
 }

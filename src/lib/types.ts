@@ -49,32 +49,19 @@ export interface Nhoguista {
 export interface CartItem {
   produto: Produto;
   qty: number;
-}
-
-export interface PedidoItem {
-  id: string;
-  pedido_id: string;
-  produto_id: string;
-  quantidade: number;
-  preco: number;
-  localizacao: string | null;
-  produtos?: { nome: string } | null;
+  por_encomenda?: boolean;
 }
 
 export interface Pedido {
   id: string;
-  user_id?: string | null;
   nome_cliente: string;
   telefone: string | null;
+  localizacao: string | null;
+  items: Array<{ id: string; nome: string; qty: number; preco: number }>;
   total: number;
   status: "pendente" | "confirmado" | "entregue" | "cancelado";
   nhoguista_codigo: string | null;
   created_at: string;
-  pedido_itens?: PedidoItem[];
-  /** @deprecated pedidos antigos com localizacao na tabela pedidos */
-  localizacao?: string | null;
-  /** @deprecated pedidos antigos com items em JSON */
-  items?: Array<{ id: string; nome: string; qty: number; preco: number }>;
 }
 
 export interface Notificacao {

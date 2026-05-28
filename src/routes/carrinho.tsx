@@ -1,12 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { isCodigoNhoguistaAprovado } from "@/lib/nhoguista";
 import { useCart, useReferral } from "@/lib/store";
 import { formatMZN } from "@/lib/format";
-import { Trash2, MessageCircle } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Trash2, MessageCircle, Lock, AlertTriangle } from "lucide-react";
+import { useState, useEffect } from "react";
 import { buildWhatsAppMessage, whatsappLink } from "@/lib/whatsapp";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/carrinho")({
   component: Carrinho,
@@ -17,16 +17,8 @@ const PROVINCIAS = ["Maputo","Matola","Gaza","Inhambane","Sofala","Manica","Tete
 function Carrinho() {
   const { items, remove, setQty, total, clear } = useCart();
   const ref = useReferral((s) => s.ref);
-  const [refAprovado, setRefAprovado] = useState<string | null>(null);
+  const { user, profile, loading: authLoading, refreshProfile } = useAuth();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!ref) {
-      setRefAprovado(null);
-      return;
-    }
-    void isCodigoNhoguistaAprovado(ref).then((ok) => setRefAprovado(ok ? ref : null));
-  }, [ref]);
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [provincia, setProvincia] = useState("");
@@ -34,7 +26,45 @@ function Carrinho() {
   const [pagamento, setPagamento] = useState("whatsapp");
   const [submitting, setSubmitting] = useState(false);
 
+  // Auto-fill from profile + last-used location (localStorage)
+  useEffect(() => {
+    if (profile?.nome && !nome) setNome(profile.nome);
+    if (profile?.telefone && !telefone) setTelefone(profile.telefone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("aura-delivery");
+    if (saved) {
+      try {
+        const d = JSON.parse(saved) as { provincia?: string; bairro?: string };
+        if (d.provincia && !provincia) setProvincia(d.provincia);
+        if (d.bairro && !bairro) setBairro(d.bairro);
+      } catch { /* noop */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const PAY_LABEL: Record<string, string> = {
+    whatsapp: "WhatsApp (combinar)",
+    mpesa: "M-Pesa",
+    emola: "e-Mola",
+    visa: "Visa",
+  };
+  const discountRate = pagamento === "mpesa" || pagamento === "emola" ? 0.08 : 0;
+  const subtotal = total();
+  const desconto = Math.round(subtotal * discountRate);
+  const totalFinal = subtotal - desconto;
+
   const checkout = async () => {
+    if (!user) {
+      toast.error("Inicie sessão para finalizar o pedido");
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("aura-post-login", "/carrinho");
+      }
+      navigate({ to: "/auth" });
+      return;
+    }
     if (!nome.trim() || !provincia || !bairro.trim()) {
       toast.error("Preencha nome, província e bairro");
       return;
@@ -42,50 +72,35 @@ function Carrinho() {
     if (items.length === 0) return;
     setSubmitting(true);
     const localizacao = `${provincia} - ${bairro}`;
-    const { data: { user } } = await supabase.auth.getUser();
-
-    const nhoguistaCodigo = refAprovado;
-
-    const { data: pedido, error: pedidoError } = await supabase
-      .from("pedidos")
-      .insert({
-        user_id: user?.id ?? null,
-        nome_cliente: nome,
-        telefone,
-        total: total(),
-        nhoguista_codigo: nhoguistaCodigo,
-        status: "pendente",
-      })
-      .select("id")
-      .single();
-
-    if (pedidoError) {
-      toast.error(pedidoError.message);
-      setSubmitting(false);
-      return;
+    // Persist client data for next purchases
+    await supabase.from("profiles").update({ nome, telefone }).eq("id", user.id);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("aura-delivery", JSON.stringify({ provincia, bairro }));
     }
-
-    const { error: itensError } = await supabase.from("pedido_itens").insert(
-      items.map((i) => ({
-        pedido_id: pedido.id,
-        produto_id: i.produto.id,
-        quantidade: i.qty,
+    await refreshProfile();
+    await supabase.from("pedidos").insert({
+      user_id: user.id,
+      nome_cliente: nome,
+      telefone,
+      localizacao,
+      items: items.map((i) => ({
+        id: i.produto.id,
+        nome: i.produto.nome,
+        qty: i.qty,
         preco: i.produto.preco,
-        localizacao,
+        por_encomenda: !!i.por_encomenda,
       })),
-    );
-
-    if (itensError) {
-      await supabase.from("pedidos").delete().eq("id", pedido.id);
-      toast.error(itensError.message);
-      setSubmitting(false);
-      return;
-    }
-    const msg = buildWhatsAppMessage(items, { nome, localizacao, telefone, ref: refAprovado });
+      total: totalFinal,
+      nhoguista_codigo: ref,
+    });
+    const msg = buildWhatsAppMessage(items, {
+      nome, localizacao, telefone, ref,
+      pagamento: PAY_LABEL[pagamento],
+      desconto, total: totalFinal,
+    });
     window.open(whatsappLink(msg), "_blank");
     clear();
     toast.success("Pedido enviado! Continuando no WhatsApp.");
-    setSubmitting(false);
     navigate({ to: "/" });
   };
 
@@ -116,6 +131,11 @@ function Carrinho() {
                   <div>
                     <p className="font-medium">{i.produto.nome}</p>
                     <p className="text-xs text-muted-foreground">{i.produto.marca}</p>
+                    {i.por_encomenda && (
+                      <p className="mt-1 inline-flex items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-amber-400">
+                        <AlertTriangle className="h-3 w-3" /> Por encomenda
+                      </p>
+                    )}
                   </div>
                   <button onClick={() => remove(i.produto.id)} className="text-muted-foreground hover:text-destructive">
                     <Trash2 className="h-4 w-4" />
@@ -140,11 +160,17 @@ function Carrinho() {
         <div className="mt-4 flex justify-between text-sm text-muted-foreground">
           <span>Subtotal</span><span>{formatMZN(total())}</span>
         </div>
+        {desconto > 0 && (
+          <div className="mt-1 flex justify-between text-sm text-emerald-400">
+            <span>Desconto {pagamento === "mpesa" ? "M-Pesa" : "e-Mola"} (8%)</span>
+            <span>-{formatMZN(desconto)}</span>
+          </div>
+        )}
         <div className="mt-1 flex justify-between text-sm text-muted-foreground">
           <span>Entrega</span><span>A combinar</span>
         </div>
         <div className="mt-4 flex justify-between border-t border-border pt-4 text-base font-semibold">
-          <span>Total</span><span className="text-gold">{formatMZN(total())}</span>
+          <span>Total</span><span className="text-gold">{formatMZN(totalFinal)}</span>
         </div>
 
         <div className="mt-6 space-y-3">
@@ -163,26 +189,22 @@ function Carrinho() {
 
         <div className="mt-6">
           <p className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Forma de pagamento</p>
-          <div className="space-y-2 text-sm">
-            <PayOption id="whatsapp" cur={pagamento} set={setPagamento} label="WhatsApp (combinar com vendedor)" available />
-            <PayOption id="mpesa" cur={pagamento} set={setPagamento} label="M-Pesa" />
-            <PayOption id="emola" cur={pagamento} set={setPagamento} label="e-Mola" />
-            <PayOption id="visa" cur={pagamento} set={setPagamento} label="Visa" />
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <PayOption id="whatsapp" cur={pagamento} set={setPagamento} label="WhatsApp" sub="Combinar" color="#25D366" />
+            <PayOption id="mpesa" cur={pagamento} set={setPagamento} label="M-Pesa" sub="-8%" color="#ED1C24" />
+            <PayOption id="emola" cur={pagamento} set={setPagamento} label="e-Mola" sub="-8%" color="#F58220" />
+            <PayOption id="visa" cur={pagamento} set={setPagamento} label="Visa" sub="" color="#1A1F71" />
           </div>
         </div>
 
-        <button
-          onClick={checkout}
-          disabled={submitting}
-          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-gold px-6 py-3 text-sm font-semibold uppercase tracking-widest text-primary-foreground shadow-gold transition hover:opacity-90 disabled:opacity-60"
-        >
-          <MessageCircle className="h-4 w-4" /> Finalizar pelo WhatsApp
-        </button>
-        {refAprovado && (
-          <p className="mt-3 text-center text-xs text-muted-foreground">
-            Ref. Nhoguista: <span className="text-gold">{refAprovado}</span>
+        {!user && !authLoading && (
+          <p className="mt-4 flex items-center gap-2 rounded-md border border-gold/30 bg-gold/5 p-3 text-xs text-gold">
+            <Lock className="h-3.5 w-3.5" /> Inicie sessão para finalizar o pedido.
           </p>
         )}
+
+        <CheckoutButton pagamento={pagamento} submitting={submitting} onClick={checkout} />
+        {ref && <p className="mt-3 text-center text-xs text-muted-foreground">Ref. Nhoguista: <span className="text-gold">{ref}</span></p>}
       </div>
     </div>
   );
@@ -191,16 +213,37 @@ function Carrinho() {
 function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-gold" />;
 }
-function PayOption({ id, cur, set, label, available }: { id: string; cur: string; set: (s: string) => void; label: string; available?: boolean }) {
+function PayOption({ id, cur, set, label, sub, color }: { id: string; cur: string; set: (s: string) => void; label: string; sub: string; color: string }) {
   const active = cur === id;
   return (
     <button
       type="button"
       onClick={() => set(id)}
-      className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left transition ${active ? "border-gold" : "border-border hover:border-gold/40"}`}
+      className={`flex flex-col items-start gap-1 rounded-md border-2 px-3 py-2.5 text-left transition ${active ? "bg-card" : "border-border bg-background/40 hover:border-border"}`}
+      style={active ? { borderColor: color } : undefined}
     >
-      <span>{label}</span>
-      {!available && <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Indisponível</span>}
+      <span className="text-xs font-bold" style={{ color }}>{label}</span>
+      {sub && <span className="text-[10px] uppercase tracking-widest text-emerald-400">{sub}</span>}
+    </button>
+  );
+}
+
+function CheckoutButton({ pagamento, submitting, onClick }: { pagamento: string; submitting: boolean; onClick: () => void }) {
+  const cfg: Record<string, { bg: string; fg: string; label: string }> = {
+    whatsapp: { bg: "#25D366", fg: "#fff", label: "Finalizar pelo WhatsApp" },
+    mpesa: { bg: "#ED1C24", fg: "#fff", label: "Pagar com M-Pesa" },
+    emola: { bg: "#F58220", fg: "#fff", label: "Pagar com e-Mola" },
+    visa: { bg: "#1A1F71", fg: "#fff", label: "Pagar com Visa" },
+  };
+  const c = cfg[pagamento] ?? cfg.whatsapp;
+  return (
+    <button
+      onClick={onClick}
+      disabled={submitting}
+      style={{ backgroundColor: c.bg, color: c.fg }}
+      className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md px-6 py-3.5 text-sm font-semibold uppercase tracking-widest shadow-lg transition hover:opacity-90 disabled:opacity-50"
+    >
+      <MessageCircle className="h-4 w-4" /> {c.label}
     </button>
   );
 }
