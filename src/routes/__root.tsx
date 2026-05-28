@@ -87,8 +87,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       { property: "og:site_name", content: "AURA SCENTRA" },
       // 👇 Substituir o URL abaixo pela imagem real de partilha (Open Graph)
-      { property: "og:image", content: "COLE_AQUI_A_URL_DA_IMAGEM" },
-      { name: "twitter:image", content: "COLE_AQUI_A_URL_DA_IMAGEM" },
+      { property: "og:image", content: "https://raw.githubusercontent.com/L4dino/Imagens-Aura-Scentra-/refs/heads/main/file_0000000055b471f4a593116c98495cd1.png" },
+      { name: "twitter:image", content: "https://raw.githubusercontent.com/L4dino/Imagens-Aura-Scentra-/refs/heads/main/file_0000000055b471f4a593116c98495cd1.png" },
       { name: "twitter:card", content: "summary" },
     ],
     links: [
@@ -97,8 +97,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: appCss,
       },
       // 👇 Substituir o href abaixo pelo ícone real (favicon) do site
-      { rel: "icon", href: "COLE_AQUI_A_URL_DO_ICONE" },
-      { rel: "apple-touch-icon", href: "COLE_AQUI_A_URL_DO_ICONE" },
+      { rel: "icon", href: "https://raw.githubusercontent.com/L4dino/Imagens-Aura-Scentra-/refs/heads/main/Logo%20tipo.jpg" },
+      { rel: "apple-touch-icon", href: "https://raw.githubusercontent.com/L4dino/Imagens-Aura-Scentra-/refs/heads/main/Logo%20tipo.jpg" },
     ],
   }),
   shellComponent: RootShell,
