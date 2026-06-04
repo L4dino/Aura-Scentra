@@ -2,14 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useAuth } from "@/lib/auth";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Produto, Nhoguista, Pedido } from "@/lib/types";
+import type { Produto, Nhoguista, Pedido, Banner } from "@/lib/types";
+import { normalizePedidoItems } from "@/lib/types";
 import { formatMZN } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, X, Upload, Package, Users, ShoppingBag, TrendingUp } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Upload, Package, Users, ShoppingBag, TrendingUp, Eye, MousePointerClick, MessageCircle, CheckCircle2, Image as ImageIcon, UserCog, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { PROVINCIAS, normalizeProvincias } from "@/lib/region";
+import { NHOGUISTA_SEM_STOCK_SETTING, getBooleanSetting, setBooleanSetting } from "@/lib/settings";
 
 export const Route = createFileRoute("/admin")({ component: Admin });
 
-type Tab = "stats" | "produtos" | "nhoguistas" | "pedidos";
+type Tab = "stats" | "produtos" | "banners" | "nhoguistas" | "pedidos" | "utilizadores";
 
 function Admin() {
   const { profile, loading } = useAuth();
@@ -20,8 +23,10 @@ function Admin() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "stats", label: "Visão geral", icon: <TrendingUp className="h-4 w-4" /> },
     { id: "produtos", label: "Produtos", icon: <Package className="h-4 w-4" /> },
+    { id: "banners", label: "Banners", icon: <ImageIcon className="h-4 w-4" /> },
     { id: "nhoguistas", label: "Nhoguistas", icon: <Users className="h-4 w-4" /> },
     { id: "pedidos", label: "Pedidos", icon: <ShoppingBag className="h-4 w-4" /> },
+    { id: "utilizadores", label: "Utilizadores", icon: <UserCog className="h-4 w-4" /> },
   ];
 
   return (
@@ -37,32 +42,68 @@ function Admin() {
       <div className="mt-8">
         {tab === "stats" && <Stats />}
         {tab === "produtos" && <Produtos />}
+        {tab === "banners" && <Banners />}
         {tab === "nhoguistas" && <Nhogs />}
         {tab === "pedidos" && <Pedidos />}
+        {tab === "utilizadores" && <Utilizadores />}
       </div>
     </div>
   );
 }
 
 function Stats() {
-  const [s, setS] = useState({ produtos: 0, pedidos: 0, vendas: 0, nhoguistas: 0 });
+  const [s, setS] = useState({
+    produtos: 0,
+    pedidos: 0,
+    nhoguistas: 0,
+    views: 0,
+    clicksProduto: 0,
+    clicksCompra: 0,
+    clicksFinalizar: 0,
+    clicksWhatsapp: 0,
+  });
   useEffect(() => {
     (async () => {
-      const [p, pe, n] = await Promise.all([
+      const [p, pe, n, ev] = await Promise.all([
         supabase.from("produtos").select("id", { count: "exact", head: true }),
-        supabase.from("pedidos").select("total"),
+        supabase.from("pedidos").select("id", { count: "exact", head: true }),
         supabase.from("nhoguistas").select("id", { count: "exact", head: true }),
+        supabase.from("eventos").select("tipo"),
       ]);
-      const vendas = (pe.data ?? []).reduce((sum: number, r: { total: number }) => sum + (r.total ?? 0), 0);
-      setS({ produtos: p.count ?? 0, pedidos: (pe.data ?? []).length, vendas, nhoguistas: n.count ?? 0 });
+      const evs = (ev.data ?? []) as { tipo: string }[];
+      const by = (t: string) => evs.filter((e) => e.tipo === t).length;
+      setS({
+        produtos: p.count ?? 0,
+        pedidos: pe.count ?? 0,
+        nhoguistas: n.count ?? 0,
+        views: by("view_produto"),
+        clicksProduto: by("click_produto"),
+        clicksCompra: by("click_compra"),
+        clicksFinalizar: by("click_finalizar"),
+        clicksWhatsapp: by("click_whatsapp"),
+      });
     })();
   }, []);
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <StatCard label="Produtos" value={String(s.produtos)} icon={<Package />} />
-      <StatCard label="Pedidos" value={String(s.pedidos)} icon={<ShoppingBag />} />
-      <StatCard label="Vendas totais" value={formatMZN(s.vendas)} icon={<TrendingUp />} highlight />
-      <StatCard label="Nhoguistas" value={String(s.nhoguistas)} icon={<Users />} />
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Produtos" value={String(s.produtos)} icon={<Package />} />
+        <StatCard label="Pedidos" value={String(s.pedidos)} icon={<ShoppingBag />} highlight />
+        <StatCard label="Nhoguistas" value={String(s.nhoguistas)} icon={<Users />} />
+        <StatCard label="Visualizações" value={String(s.views)} icon={<Eye />} />
+      </div>
+      <div>
+        <h3 className="mb-3 text-xs uppercase tracking-widest text-muted-foreground">Comportamento do utilizador</h3>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard label="Cliques em produto" value={String(s.clicksProduto)} icon={<MousePointerClick />} />
+          <StatCard label="Cliques em comprar" value={String(s.clicksCompra)} icon={<ShoppingBag />} />
+          <StatCard label="Cliques finalizar" value={String(s.clicksFinalizar)} icon={<CheckCircle2 />} />
+          <StatCard label="Cliques WhatsApp" value={String(s.clicksWhatsapp)} icon={<MessageCircle />} />
+        </div>
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Métricas baseadas em ações reais. Pagamento manual — não é contabilizado como receita confirmada.
+        </p>
+      </div>
     </div>
   );
 }
@@ -79,6 +120,7 @@ const emptyForm = {
   nome: "", marca: "", preco: "", categoria: "masculino", imagem_url: "",
   descricao: "", destaque: false, tag: "", stock: "10",
   comissao_valor: "0", avaliacao: "4.8", num_avaliacoes: "0",
+  provincias: [] as string[], todas_regioes: true,
 };
 
 function Produtos() {
@@ -133,6 +175,8 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
     comissao_valor: String(initial.comissao_valor ?? 0),
     avaliacao: String(initial.avaliacao ?? 4.8),
     num_avaliacoes: String(initial.num_avaliacoes ?? 0),
+    provincias: normalizeProvincias(initial.provincias),
+    todas_regioes: normalizeProvincias(initial.provincias).length === 0,
   } : emptyForm);
   const [busy, setBusy] = useState(false);
 
@@ -148,6 +192,7 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
   const save = async () => {
     if (!form.nome || !form.preco) return toast.error("Nome e preço são obrigatórios");
     setBusy(true);
+    const selectedProvincias = normalizeProvincias(form.provincias);
     const payload = {
       nome: form.nome, marca: form.marca || null, preco: Number(form.preco),
       categoria: form.categoria, imagem_url: form.imagem_url || null,
@@ -156,7 +201,12 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
       comissao_valor: Number(form.comissao_valor) || 0,
       avaliacao: Number(form.avaliacao) || null,
       num_avaliacoes: Number(form.num_avaliacoes) || 0,
+      provincias: form.todas_regioes ? null : selectedProvincias,
     };
+    if (!form.todas_regioes && selectedProvincias.length === 0) {
+      setBusy(false);
+      return toast.error("Selecione pelo menos uma província ou marque todas as províncias");
+    }
     const op = initial
       ? supabase.from("produtos").update(payload).eq("id", initial.id)
       : supabase.from("produtos").insert(payload);
@@ -168,6 +218,11 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
   };
 
   const F = (k: keyof typeof form, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+  const toggleProv = (p: string) =>
+    setForm((f) => ({
+      ...f,
+      provincias: f.provincias.includes(p) ? f.provincias.filter((x) => x !== p) : [...f.provincias, p],
+    }));
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 md:items-center md:p-4" onClick={onClose}>
@@ -209,6 +264,35 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
           <Field label="Descrição">
             <textarea rows={3} className={inp} value={form.descricao} onChange={(e) => F("descricao", e.target.value)} />
           </Field>
+          <Field label={`Disponibilidade por província${form.todas_regioes ? "" : ` (${normalizeProvincias(form.provincias).length} selecionadas)`}`}>
+            <label className="mb-2 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.todas_regioes}
+                onChange={(e) => F("todas_regioes", e.target.checked)}
+              />
+              <span className="text-muted-foreground">Disponível em todas as províncias</span>
+            </label>
+            {!form.todas_regioes && (
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                {PROVINCIAS.map((p) => {
+                  const on = form.provincias.includes(p);
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => toggleProv(p)}
+                      className={`rounded border px-2 py-1.5 text-xs transition ${
+                        on ? "border-gold bg-gold/10 text-gold" : "border-border text-muted-foreground hover:border-gold"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </Field>
           <Field label="Imagem (URL ou upload)">
             <input className={inp} placeholder="https://..." value={form.imagem_url} onChange={(e) => F("imagem_url", e.target.value)} />
             <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-gold hover:text-gold">
@@ -231,17 +315,225 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className="mb-1 block text-[11px] uppercase tracking-widest text-muted-foreground">{label}</label>{children}</div>;
 }
 
+type AdminUserRow = {
+  id: string;
+  nome: string | null;
+  email: string | null;
+  tipo: "admin" | "revendedor" | "cliente";
+  created_at: string;
+  last_login: string | null;
+  total: number;
+};
+
+const PAGE_SIZE = 20;
+
+function Utilizadores() {
+  const [rows, setRows] = useState<AdminUserRow[]>([]);
+  const [filter, setFilter] = useState<"all" | "active" | "inactive">("all");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { setPage(0); }, [filter]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase.rpc("admin_list_users", {
+        p_limit: PAGE_SIZE,
+        p_offset: page * PAGE_SIZE,
+        p_filter: filter,
+        p_active_days: 30,
+      });
+      if (!active) return;
+      if (error) {
+        const fallback = await loadUsersFallback(page, filter);
+        if (!active) return;
+        if (fallback.error) toast.error(error.message);
+        setRows(fallback.rows);
+        setTotal(fallback.total);
+      } else {
+        const list = (data ?? []) as AdminUserRow[];
+        setRows(list);
+        setTotal(list[0]?.total ?? 0);
+      }
+      setLoading(false);
+    })();
+    return () => { active = false; };
+  }, [page, filter]);
+
+  const filtered = search.trim()
+    ? rows.filter((r) => {
+        const q = search.toLowerCase();
+        return (r.nome ?? "").toLowerCase().includes(q) || (r.email ?? "").toLowerCase().includes(q);
+      })
+    : rows;
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 rounded-md border border-border bg-card p-1">
+          {(["all", "active", "inactive"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`rounded px-3 py-1.5 text-[11px] uppercase tracking-widest transition ${
+                filter === f ? "bg-gold text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {f === "all" ? "Todos" : f === "active" ? "Activos (30d)" : "Inactivos"}
+            </button>
+          ))}
+        </div>
+        <div className="relative ml-auto flex-1 min-w-[180px] max-w-xs">
+          <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filtrar nesta página…"
+            className="w-full rounded-md border border-border bg-background py-2 pl-8 pr-3 text-sm outline-none focus:border-gold"
+          />
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-border/60 bg-card">
+        <div className="hidden grid-cols-[2fr_2fr_1fr_1fr_1fr] gap-3 border-b border-border bg-background/40 px-4 py-2 text-[10px] uppercase tracking-widest text-muted-foreground md:grid">
+          <span>Nome</span><span>Email</span><span>Tipo</span><span>Criado</span><span>Último acesso</span>
+        </div>
+        {loading && <p className="px-4 py-8 text-center text-sm text-muted-foreground">A carregar…</p>}
+        {!loading && filtered.length === 0 && (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">Sem utilizadores nesta vista.</p>
+        )}
+        {!loading && filtered.map((u) => (
+          <div key={u.id} className="grid grid-cols-1 gap-1 border-b border-border/60 px-4 py-3 text-sm last:border-0 md:grid-cols-[2fr_2fr_1fr_1fr_1fr] md:items-center md:gap-3">
+            <span className="font-medium">{u.nome ?? "—"}</span>
+            <span className="truncate text-muted-foreground">{u.email ?? "—"}</span>
+            <span>
+              <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                u.tipo === "admin" ? "bg-destructive/15 text-destructive"
+                : u.tipo === "revendedor" ? "bg-gold/15 text-gold"
+                : "bg-secondary text-muted-foreground"}`}>
+                {u.tipo}
+              </span>
+            </span>
+            <span className="text-xs text-muted-foreground">{new Date(u.created_at).toLocaleDateString("pt-MZ")}</span>
+            <span className="text-xs text-muted-foreground">
+              {u.last_login ? new Date(u.last_login).toLocaleString("pt-MZ") : <span className="italic">Nunca</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>Total: {total} • Página {page + 1} de {totalPages}</span>
+        <div className="flex gap-2">
+          <button
+            disabled={page === 0 || loading}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            className="inline-flex items-center gap-1 rounded border border-border px-3 py-1.5 disabled:opacity-40"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+          </button>
+          <button
+            disabled={page + 1 >= totalPages || loading}
+            onClick={() => setPage((p) => p + 1)}
+            className="inline-flex items-center gap-1 rounded border border-border px-3 py-1.5 disabled:opacity-40"
+          >
+            Próxima <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function loadUsersFallback(page: number, filter: "all" | "active" | "inactive") {
+  let query = supabase
+    .from("profiles")
+    .select("id,nome,email,is_admin,created_at,last_login", { count: "exact" })
+    .order("last_login", { ascending: false, nullsFirst: false })
+    .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+  const limitDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  if (filter === "active") query = query.gte("last_login", limitDate);
+  if (filter === "inactive") query = query.or(`last_login.is.null,last_login.lt.${limitDate}`);
+  const [{ data: profiles, count, error }, { data: nhoguistas }] = await Promise.all([
+    query,
+    supabase.from("nhoguistas").select("user_id,status").eq("status", "aprovado"),
+  ]);
+  const revendedores = new Set((nhoguistas ?? []).map((row) => row.user_id));
+  return {
+    error: error?.message,
+    total: count ?? 0,
+    rows: ((profiles ?? []) as Array<Record<string, unknown>>).map((profile) => ({
+      id: String(profile.id),
+      nome: (profile.nome as string | null) ?? null,
+      email: (profile.email as string | null) ?? null,
+      tipo: profile.is_admin ? "admin" : revendedores.has(String(profile.id)) ? "revendedor" : "cliente",
+      created_at: String(profile.created_at ?? new Date().toISOString()),
+      last_login: (profile.last_login as string | null) ?? null,
+      total: count ?? 0,
+    })) as AdminUserRow[],
+  };
+}
+
 function Nhogs() {
   const [items, setItems] = useState<(Nhoguista & { profiles?: { nome: string | null } })[]>([]);
-  const load = () => supabase.from("nhoguistas").select("*, profiles(nome)").order("created_at", { ascending: false }).then(({ data }) => setItems((data ?? []) as never));
-  useEffect(() => { load(); }, []);
+  const [semStockOpen, setSemStockOpen] = useState(true);
+  const [settingMissing, setSettingMissing] = useState(false);
+  const load = async () => {
+    const { data, error } = await supabase.from("nhoguistas").select("*").order("created_at", { ascending: false });
+    if (error) {
+      toast.error(error.message);
+      setItems([]);
+      return;
+    }
+    const rows = (data ?? []) as Nhoguista[];
+    const userIds = [...new Set(rows.map((n) => n.user_id).filter(Boolean))];
+    const names = new Map<string, string | null>();
+    if (userIds.length) {
+      const { data: profiles } = await supabase.from("profiles").select("id,nome").in("id", userIds);
+      (profiles ?? []).forEach((profile) => names.set(profile.id, profile.nome ?? null));
+    }
+    setItems(rows.map((n) => ({ ...n, profiles: { nome: names.get(n.user_id) ?? null } })));
+  };
+  useEffect(() => {
+    load();
+    getBooleanSetting(NHOGUISTA_SEM_STOCK_SETTING, true).then((result) => {
+      setSemStockOpen(result.value);
+      setSettingMissing(result.missingTable);
+    });
+  }, []);
   const set = async (id: string, status: string) => {
     const { error } = await supabase.from("nhoguistas").update({ status }).eq("id", id);
     if (error) return toast.error(error.message);
     toast.success(`Nhoguista ${status}`); load();
   };
+  const toggleSemStock = async () => {
+    const next = !semStockOpen;
+    const { error } = await setBooleanSetting(NHOGUISTA_SEM_STOCK_SETTING, next);
+    if (error) return toast.error(error);
+    setSemStockOpen(next);
+    toast.success(next ? "Candidaturas sem stock activadas" : "Candidaturas sem stock desactivadas");
+  };
   return (
     <div className="space-y-2">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card p-4">
+        <div>
+          <p className="text-sm font-medium">Candidaturas de Nhoguistas sem stock</p>
+          <p className="text-xs text-muted-foreground">Controla se novos revendedores sem stock podem candidatar-se automaticamente.</p>
+          {settingMissing && <p className="mt-1 text-[11px] text-gold">Instale a tabela app_settings pelo SQL indicado para guardar esta opção na base de dados.</p>}
+        </div>
+        <button
+          onClick={toggleSemStock}
+          className={`rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-widest transition ${semStockOpen ? "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10" : "border-destructive/40 text-destructive hover:bg-destructive/10"}`}
+        >
+          {semStockOpen ? "Desactivar" : "Activar"}
+        </button>
+      </div>
       {items.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Sem candidaturas.</p>}
       {items.map((n) => (
         <div key={n.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-card p-3 text-sm">
@@ -287,18 +579,163 @@ function Pedidos() {
             </div>
             <span className="text-gold">{formatMZN(p.total)}</span>
           </div>
-          <p className="mt-2 text-xs">{p.items.map((i) => `${i.nome} x${i.qty}`).join(", ")}</p>
+          <p className="mt-2 text-xs">{normalizePedidoItems(p.items).map((i) => `${i.nome} x${i.qty}`).join(", ") || "Itens não detalhados"}</p>
           {p.nhoguista_codigo && <p className="mt-1 text-xs text-gold">Ref: {p.nhoguista_codigo}</p>}
           <div className="mt-3 flex flex-wrap gap-2">
             <select value={p.status} onChange={(e) => setStatus(p.id, e.target.value)} className="rounded border border-border bg-background px-2 py-1 text-xs">
               <option value="pendente">Pendente</option>
-              <option value="confirmado">Confirmado</option>
+              <option value="processando">Processando</option>
+              <option value="concluido">Concluído</option>
+              <option value="a_caminho">A caminho</option>
               <option value="entregue">Entregue</option>
               <option value="cancelado">Cancelado</option>
             </select>
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function Banners() {
+  const [items, setItems] = useState<Banner[]>([]);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Banner | null>(null);
+  const load = () =>
+    supabase
+      .from("banners")
+      .select("*")
+      .order("ordem", { ascending: true })
+      .then(({ data, error }) => {
+        if (error) toast.error("Banners: " + error.message);
+        setItems((data ?? []) as Banner[]);
+      });
+  useEffect(() => { load(); }, []);
+
+  const del = async (id: string) => {
+    if (!confirm("Eliminar este banner?")) return;
+    const { error } = await supabase.from("banners").delete().eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success("Banner eliminado"); load();
+  };
+  const toggle = async (b: Banner) => {
+    const { error } = await supabase.from("banners").update({ ativo: !b.ativo }).eq("id", b.id);
+    if (error) return toast.error(error.message);
+    load();
+  };
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{items.length} banners</p>
+        <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-gold px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-primary-foreground shadow-gold">
+          <Plus className="h-4 w-4" /> Novo banner
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {items.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Sem banners. Crie o primeiro.</p>}
+        {items.map((b) => (
+          <div key={b.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-card p-3">
+            {b.imagem_url
+              ? <img src={b.imagem_url} alt="" className="h-16 w-28 rounded object-cover" />
+              : <div className="h-16 w-28 rounded bg-background" />}
+            <div className="flex-1 min-w-0 text-sm">
+              <p className="truncate font-medium">{b.titulo ?? "Sem título"}</p>
+              <p className="truncate text-xs text-muted-foreground">{b.subtitulo ?? ""}</p>
+              <p className="text-[10px] uppercase tracking-widest text-gold">ordem {b.ordem} • {b.ativo ? "activo" : "inactivo"}</p>
+            </div>
+            <button onClick={() => toggle(b)} className={`rounded px-2 py-1 text-[10px] uppercase tracking-widest ${b.ativo ? "border border-emerald-500/40 text-emerald-400" : "border border-border text-muted-foreground"}`}>
+              {b.ativo ? "Desactivar" : "Activar"}
+            </button>
+            <button onClick={() => { setEditing(b); setOpen(true); }} className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-gold"><Pencil className="h-4 w-4" /></button>
+            <button onClick={() => del(b.id)} className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
+          </div>
+        ))}
+      </div>
+
+      {open && <BannerModal initial={editing} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); load(); }} />}
+    </div>
+  );
+}
+
+function BannerModal({ initial, onClose, onSaved }: { initial: Banner | null; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState(() => initial ? {
+    imagem_url: initial.imagem_url ?? "",
+    titulo: initial.titulo ?? "",
+    subtitulo: initial.subtitulo ?? "",
+    link: initial.link ?? "",
+    ordem: String(initial.ordem ?? 0),
+    ativo: initial.ativo,
+  } : { imagem_url: "", titulo: "", subtitulo: "", link: "", ordem: "0", ativo: true });
+  const [busy, setBusy] = useState(false);
+
+  const upload = async (file: File) => {
+    const path = `banners/${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
+    const { error } = await supabase.storage.from("produtos").upload(path, file);
+    if (error) return toast.error(error.message);
+    const { data } = supabase.storage.from("produtos").getPublicUrl(path);
+    setForm((f) => ({ ...f, imagem_url: data.publicUrl }));
+    toast.success("Imagem enviada");
+  };
+
+  const save = async () => {
+    if (!form.imagem_url) return toast.error("Imagem é obrigatória");
+    setBusy(true);
+    const payload = {
+      imagem_url: form.imagem_url,
+      titulo: form.titulo || null,
+      subtitulo: form.subtitulo || null,
+      link: form.link || null,
+      ordem: Number(form.ordem) || 0,
+      ativo: form.ativo,
+    };
+    const op = initial
+      ? supabase.from("banners").update(payload).eq("id", initial.id)
+      : supabase.from("banners").insert(payload);
+    const { error } = await op;
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success(initial ? "Banner atualizado" : "Banner criado");
+    onSaved();
+  };
+
+  const F = (k: keyof typeof form, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 md:items-center md:p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-xl overflow-y-auto rounded-t-2xl border border-border/60 bg-card md:rounded-2xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-4">
+          <h3 className="font-display text-xl">{initial ? "Editar banner" : "Novo banner"}</h3>
+          <button onClick={onClose} className="rounded p-1 text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-3 p-5">
+          <Field label="Título"><input className={inp} value={form.titulo} onChange={(e) => F("titulo", e.target.value)} /></Field>
+          <Field label="Subtítulo"><input className={inp} value={form.subtitulo} onChange={(e) => F("subtitulo", e.target.value)} /></Field>
+          <Field label="Link (opcional)"><input className={inp} placeholder="/catalogo ou https://..." value={form.link} onChange={(e) => F("link", e.target.value)} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Ordem"><input type="number" className={inp} value={form.ordem} onChange={(e) => F("ordem", e.target.value)} /></Field>
+            <Field label="Activo">
+              <label className="flex items-center gap-2 py-2 text-sm">
+                <input type="checkbox" checked={form.ativo} onChange={(e) => F("ativo", e.target.checked)} />
+                <span className="text-muted-foreground">Visível no site</span>
+              </label>
+            </Field>
+          </div>
+          <Field label="Imagem">
+            <input className={inp} placeholder="https://..." value={form.imagem_url} onChange={(e) => F("imagem_url", e.target.value)} />
+            <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground hover:border-gold hover:text-gold">
+              <Upload className="h-4 w-4" /> Carregar imagem
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
+            </label>
+            {form.imagem_url && <img src={form.imagem_url} alt="" className="mt-3 h-32 w-full rounded-lg object-cover" />}
+          </Field>
+        </div>
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-4">
+          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancelar</button>
+          <button onClick={save} disabled={busy} className="rounded-md bg-gold px-6 py-2 text-sm font-semibold uppercase tracking-widest text-primary-foreground disabled:opacity-60">{busy ? "A guardar…" : "Guardar"}</button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import { Chrome } from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
@@ -14,6 +15,22 @@ function AuthPage() {
   const [nome, setNome] = useState("");
   const [loading, setLoading] = useState(false);
   const nav = useNavigate();
+
+  const googleSignIn = async () => {
+    try {
+      const redirect =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/`
+          : undefined;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: redirect },
+      });
+      if (error) throw error;
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,6 +87,22 @@ function AuthPage() {
           {loading ? "A processar…" : mode === "login" ? "Entrar" : "Criar conta"}
         </button>
       </form>
+
+      <div className="my-4 flex items-center gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+        <span className="h-px flex-1 bg-border" /> ou <span className="h-px flex-1 bg-border" />
+      </div>
+      <button
+        type="button"
+        onClick={googleSignIn}
+        className="group relative flex w-full items-center justify-center gap-3 overflow-hidden rounded-md border border-border bg-card px-4 py-3.5 text-sm font-semibold uppercase tracking-widest text-foreground shadow-lg transition hover:border-gold hover:shadow-gold"
+      >
+        <span className="absolute inset-y-0 left-0 w-1 bg-gold transition-all group-hover:w-full group-hover:opacity-10" />
+        <span className="grid h-8 w-8 place-items-center rounded-full bg-background ring-1 ring-border transition group-hover:ring-gold/60">
+          <Chrome className="h-4 w-4 text-gold" />
+        </span>
+        Entrar com Google
+      </button>
+
       <button onClick={() => setMode(mode === "login" ? "signup" : "login")} className="mt-4 text-center text-sm text-muted-foreground hover:text-gold">
         {mode === "login" ? "Ainda não tem conta? Criar agora" : "Já tem conta? Entrar"}
       </button>

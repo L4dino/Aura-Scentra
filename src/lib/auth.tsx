@@ -40,7 +40,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null);
       }
     });
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data, error }) => {
+      if (error) {
+        await supabase.auth.signOut({ scope: "local" });
+        setSession(null);
+        setProfile(null);
+        useCart.getState().setOwner(null);
+        setLoading(false);
+        return;
+      }
       setSession(data.session);
       useCart.getState().setOwner(data.session?.user?.id ?? null);
       if (data.session?.user) loadProfile(data.session.user.id);

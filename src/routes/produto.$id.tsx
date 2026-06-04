@@ -6,7 +6,9 @@ import { formatMZN } from "@/lib/format";
 import { useCart } from "@/lib/store";
 import { Star, ShoppingBag, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { track } from "@/lib/events";
+import { RegionsPopover } from "@/components/RegionsPopover";
 
 export const Route = createFileRoute("/produto/$id")({
   component: ProdutoPage,
@@ -25,6 +27,10 @@ function ProdutoPage() {
       return data as Produto | null;
     },
   });
+
+  useEffect(() => {
+    if (p?.id) track("view_produto", p.id);
+  }, [p?.id]);
 
   if (isLoading) {
     return <div className="mx-auto max-w-7xl px-4 py-20 text-center text-muted-foreground">A carregar…</div>;
@@ -73,6 +79,8 @@ function ProdutoPage() {
             </p>
           )}
           {p.descricao && <p className="mt-6 leading-relaxed text-muted-foreground">{p.descricao}</p>}
+
+          <RegionsPopover value={p.provincias} className="mt-5" />
 
           <div className="mt-8 flex items-center gap-3">
             <div className="flex items-center rounded-md border border-border">

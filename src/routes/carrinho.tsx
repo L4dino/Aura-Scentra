@@ -1,12 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCart, useReferral } from "@/lib/store";
 import { formatMZN } from "@/lib/format";
-import { Trash2, MessageCircle, Lock, AlertTriangle } from "lucide-react";
+import { Trash2, MessageCircle, Lock, AlertTriangle, Ban } from "lucide-react";
 import { useState, useEffect } from "react";
 import { buildWhatsAppMessage, whatsappLink } from "@/lib/whatsapp";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { track } from "@/lib/events";
 
 export const Route = createFileRoute("/carrinho")({
   component: Carrinho,
@@ -29,7 +30,8 @@ function Carrinho() {
   // Auto-fill from profile + last-used location (localStorage)
   useEffect(() => {
     if (profile?.nome && !nome) setNome(profile.nome);
-    if (profile?.telefone && !telefone) setTelefone(profile.telefone);
+    const savedPhone = profile?.telefone ?? profile?.whatsapp;
+    if (savedPhone && !telefone) setTelefone(savedPhone);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile]);
   useEffect(() => {
@@ -51,12 +53,13 @@ function Carrinho() {
     emola: "e-Mola",
     visa: "Visa",
   };
-  const discountRate = pagamento === "mpesa" || pagamento === "emola" ? 0.08 : 0;
+  const discountRate = 0;
   const subtotal = total();
   const desconto = Math.round(subtotal * discountRate);
   const totalFinal = subtotal - desconto;
 
   const checkout = async () => {
+    if (submitting) return;
     if (!user) {
       toast.error("Inicie sessão para finalizar o pedido");
       if (typeof window !== "undefined") {
@@ -73,12 +76,15 @@ function Carrinho() {
     setSubmitting(true);
     const localizacao = `${provincia} - ${bairro}`;
     // Persist client data for next purchases
-    await supabase.from("profiles").update({ nome, telefone }).eq("id", user.id);
+    const profileUpdate = await supabase.from("profiles").update({ nome, whatsapp: telefone || null }).eq("id", user.id);
+    if (profileUpdate.error?.code === "42703") {
+      await supabase.from("profiles").update({ nome, telefone: telefone || null }).eq("id", user.id);
+    }
     if (typeof window !== "undefined") {
       window.localStorage.setItem("aura-delivery", JSON.stringify({ provincia, bairro }));
     }
     await refreshProfile();
-    await supabase.from("pedidos").insert({
+    const pedidoPayload = {
       user_id: user.id,
       nome_cliente: nome,
       telefone,
@@ -92,7 +98,24 @@ function Carrinho() {
       })),
       total: totalFinal,
       nhoguista_codigo: ref,
-    });
+      status: "pendente",
+    };
+    const { error: pedidoError } = await supabase.from("pedidos").insert(pedidoPayload);
+    if (pedidoError?.code === "42703" && /localizacao/i.test(pedidoError.message)) {
+      const { localizacao: _localizacao, ...fallbackPayload } = pedidoPayload;
+      const retry = await supabase.from("pedidos").insert(fallbackPayload);
+      if (retry.error) {
+        setSubmitting(false);
+        toast.error("Não foi possível registar o pedido: " + retry.error.message);
+        return;
+      }
+    } else if (pedidoError) {
+      setSubmitting(false);
+      toast.error("Não foi possível registar o pedido: " + pedidoError.message);
+      return;
+    }
+    track("click_finalizar", null, ref);
+    if (pagamento === "whatsapp") track("click_whatsapp");
     const msg = buildWhatsAppMessage(items, {
       nome, localizacao, telefone, ref,
       pagamento: PAY_LABEL[pagamento],
@@ -100,7 +123,7 @@ function Carrinho() {
     });
     window.open(whatsappLink(msg), "_blank");
     clear();
-    toast.success("Pedido enviado! Continuando no WhatsApp.");
+    toast.success("Pedido registado! Continuando no WhatsApp.");
     navigate({ to: "/" });
   };
 
@@ -191,9 +214,9 @@ function Carrinho() {
           <p className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Forma de pagamento</p>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <PayOption id="whatsapp" cur={pagamento} set={setPagamento} label="WhatsApp" sub="Combinar" color="#25D366" />
-            <PayOption id="mpesa" cur={pagamento} set={setPagamento} label="M-Pesa" sub="-8%" color="#ED1C24" />
-            <PayOption id="emola" cur={pagamento} set={setPagamento} label="e-Mola" sub="-8%" color="#F58220" />
-            <PayOption id="visa" cur={pagamento} set={setPagamento} label="Visa" sub="" color="#1A1F71" />
+            <PayOption id="mpesa" cur={pagamento} set={setPagamento} label="M-Pesa" sub="Inativo" color="#ED1C24" disabled />
+            <PayOption id="emola" cur={pagamento} set={setPagamento} label="e-Mola" sub="Inativo" color="#F58220" disabled />
+            <PayOption id="visa" cur={pagamento} set={setPagamento} label="Visa" sub="Inativo" color="#1A1F71" disabled />
           </div>
         </div>
 
@@ -213,17 +236,19 @@ function Carrinho() {
 function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-gold" />;
 }
-function PayOption({ id, cur, set, label, sub, color }: { id: string; cur: string; set: (s: string) => void; label: string; sub: string; color: string }) {
+function PayOption({ id, cur, set, label, sub, color, disabled = false }: { id: string; cur: string; set: (s: string) => void; label: string; sub: string; color: string; disabled?: boolean }) {
   const active = cur === id;
   return (
     <button
       type="button"
-      onClick={() => set(id)}
-      className={`flex flex-col items-start gap-1 rounded-md border-2 px-3 py-2.5 text-left transition ${active ? "bg-card" : "border-border bg-background/40 hover:border-border"}`}
+      onClick={() => { if (!disabled) set(id); }}
+      disabled={disabled}
+      aria-disabled={disabled}
+      className={`flex flex-col items-start gap-1 rounded-md border-2 px-3 py-2.5 text-left transition ${active ? "bg-card" : "border-border bg-background/40 hover:border-border"} ${disabled ? "cursor-not-allowed opacity-45 grayscale" : ""}`}
       style={active ? { borderColor: color } : undefined}
     >
-      <span className="text-xs font-bold" style={{ color }}>{label}</span>
-      {sub && <span className="text-[10px] uppercase tracking-widest text-emerald-400">{sub}</span>}
+      <span className="inline-flex items-center gap-1 text-xs font-bold" style={{ color }}>{disabled && <Ban className="h-3 w-3" />}{label}</span>
+      {sub && <span className={`text-[10px] uppercase tracking-widest ${disabled ? "text-muted-foreground" : "text-emerald-400"}`}>{sub}</span>}
     </button>
   );
 }

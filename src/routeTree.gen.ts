@@ -24,6 +24,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProdutoIdRouteImport } from './routes/produto.$id'
+import { Route as ApiGeolocateRouteImport } from './routes/api/geolocate'
 
 const TrocasDevolucoesRoute = TrocasDevolucoesRouteImport.update({
   id: '/trocas-devolucoes',
@@ -100,6 +101,11 @@ const ProdutoIdRoute = ProdutoIdRouteImport.update({
   path: '/produto/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGeolocateRoute = ApiGeolocateRouteImport.update({
+  id: '/api/geolocate',
+  path: '/api/geolocate',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/prazo-entrega': typeof PrazoEntregaRoute
   '/sobre': typeof SobreRoute
   '/trocas-devolucoes': typeof TrocasDevolucoesRoute
+  '/api/geolocate': typeof ApiGeolocateRoute
   '/produto/$id': typeof ProdutoIdRoute
 }
 export interface FileRoutesByTo {
@@ -133,6 +140,7 @@ export interface FileRoutesByTo {
   '/prazo-entrega': typeof PrazoEntregaRoute
   '/sobre': typeof SobreRoute
   '/trocas-devolucoes': typeof TrocasDevolucoesRoute
+  '/api/geolocate': typeof ApiGeolocateRoute
   '/produto/$id': typeof ProdutoIdRoute
 }
 export interface FileRoutesById {
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/prazo-entrega': typeof PrazoEntregaRoute
   '/sobre': typeof SobreRoute
   '/trocas-devolucoes': typeof TrocasDevolucoesRoute
+  '/api/geolocate': typeof ApiGeolocateRoute
   '/produto/$id': typeof ProdutoIdRoute
 }
 export interface FileRouteTypes {
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/prazo-entrega'
     | '/sobre'
     | '/trocas-devolucoes'
+    | '/api/geolocate'
     | '/produto/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/prazo-entrega'
     | '/sobre'
     | '/trocas-devolucoes'
+    | '/api/geolocate'
     | '/produto/$id'
   id:
     | '__root__'
@@ -204,6 +215,7 @@ export interface FileRouteTypes {
     | '/prazo-entrega'
     | '/sobre'
     | '/trocas-devolucoes'
+    | '/api/geolocate'
     | '/produto/$id'
   fileRoutesById: FileRoutesById
 }
@@ -222,6 +234,7 @@ export interface RootRouteChildren {
   PrazoEntregaRoute: typeof PrazoEntregaRoute
   SobreRoute: typeof SobreRoute
   TrocasDevolucoesRoute: typeof TrocasDevolucoesRoute
+  ApiGeolocateRoute: typeof ApiGeolocateRoute
   ProdutoIdRoute: typeof ProdutoIdRoute
 }
 
@@ -332,6 +345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProdutoIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/geolocate': {
+      id: '/api/geolocate'
+      path: '/api/geolocate'
+      fullPath: '/api/geolocate'
+      preLoaderRoute: typeof ApiGeolocateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -350,6 +370,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrazoEntregaRoute: PrazoEntregaRoute,
   SobreRoute: SobreRoute,
   TrocasDevolucoesRoute: TrocasDevolucoesRoute,
+  ApiGeolocateRoute: ApiGeolocateRoute,
   ProdutoIdRoute: ProdutoIdRoute,
 }
 export const routeTree = rootRouteImport

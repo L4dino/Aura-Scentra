@@ -5,6 +5,9 @@ import type { Produto } from "@/lib/types";
 import { ProductCard } from "@/components/ProductCard";
 import { z } from "zod";
 import { zodValidator } from "@tanstack/zod-adapter";
+import { useEffect, useState } from "react";
+import { useRegion, detectRegion, PROVINCIAS, isAvailableInRegion } from "@/lib/region";
+import { MapPin, X } from "lucide-react";
 
 const search = z.object({
   cat: z.enum(["masculino", "feminino", "unissex"]).optional(),
@@ -22,17 +25,44 @@ const PER_PAGE = 4;
 function Catalogo() {
   const { cat, tag, page } = Route.useSearch();
   const navigate = useNavigate({ from: "/catalogo" });
+  const { active: regionActive, provincia, setActive, setProvincia, toggle } = useRegion();
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Detecção automática (só se ainda não houver província definida)
+  useEffect(() => {
+    if (!provincia) {
+      detectRegion().then((r) => { if (r) setProvincia(r); });
+    }
+  }, [provincia, setProvincia]);
+
+  const onToggleFilter = () => {
+    if (!regionActive) {
+      if (!provincia) {
+        // Sem detecção automática: abre o picker para escolher manualmente
+        setPickerOpen(true);
+        return;
+      }
+      setActive(true);
+    } else {
+      setActive(false);
+    }
+  };
 
   const { data, isLoading } = useQuery({
-    queryKey: ["produtos", cat, tag, page],
+    queryKey: ["produtos", cat, tag, page, regionActive, provincia],
     queryFn: async () => {
       let q = supabase.from("produtos").select("*", { count: "exact" }).order("created_at", { ascending: false });
       if (cat) q = q.eq("categoria", cat);
       if (tag) q = q.eq("tag", tag);
-      const from = (page - 1) * PER_PAGE;
-      q = q.range(from, from + PER_PAGE - 1);
       const { data, count } = await q;
-      return { items: (data ?? []) as Produto[], count: count ?? 0 };
+      let items = (data ?? []) as Produto[];
+      if (regionActive && provincia) {
+        items = items.filter((p) => isAvailableInRegion(p.provincias ?? null, provincia));
+      }
+      const total = items.length;
+      const from = (page - 1) * PER_PAGE;
+      items = items.slice(from, from + PER_PAGE);
+      return { items, count: total || (count ?? 0) };
     },
   });
 
@@ -44,6 +74,52 @@ function Catalogo() {
         <h1 className="font-display text-4xl">Catálogo</h1>
         <p className="mt-2 text-sm text-muted-foreground">Perfumes premium para todos os momentos.</p>
       </div>
+
+      {/* Filtro por região */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <button
+          onClick={onToggleFilter}
+          className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs uppercase tracking-widest transition ${
+            regionActive
+              ? "border-gold bg-gold text-primary-foreground shadow-gold"
+              : "border-border bg-background/40 text-muted-foreground hover:border-gold/60 hover:text-foreground"
+          }`}
+        >
+          <MapPin className="h-3.5 w-3.5" />
+          {regionActive ? `Filtrando: ${provincia ?? "Minha região"}` : "Mostrar na minha região"}
+        </button>
+        {regionActive && (
+          <>
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-gold/60 bg-gold/10 px-4 py-2 text-xs uppercase tracking-widest text-gold transition hover:bg-gold/20"
+            >
+              <MapPin className="h-3.5 w-3.5" />
+              Mudar província
+            </button>
+            <button
+              onClick={() => setActive(false)}
+              className="rounded-full border border-border px-3 py-2 text-xs text-muted-foreground transition hover:border-destructive hover:text-destructive"
+              aria-label="Desativar filtro"
+              title="Mostrar todos os produtos"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+      </div>
+
+      {pickerOpen && (
+        <RegionPicker
+          current={provincia}
+          onClose={() => setPickerOpen(false)}
+          onPick={(p) => {
+            setProvincia(p);
+            setActive(true);
+            setPickerOpen(false);
+          }}
+        />
+      )}
 
       <div className="mb-8 flex flex-wrap items-center gap-2">
         <Chip active={!cat && !tag} onClick={() => navigate({ search: { page: 1 } })}>Todos</Chip>
@@ -104,5 +180,39 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
     >
       {children}
     </button>
+  );
+}
+
+function RegionPicker({
+  current,
+  onClose,
+  onPick,
+}: {
+  current: string | null;
+  onClose: () => void;
+  onPick: (p: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 md:items-center md:p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-t-2xl border border-border/60 bg-card md:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h3 className="font-display text-lg">Escolha a sua província</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-2 p-4">
+          {PROVINCIAS.map((p) => (
+            <button
+              key={p}
+              onClick={() => onPick(p)}
+              className={`rounded-md border px-3 py-2.5 text-sm transition ${
+                current === p ? "border-gold bg-gold/10 text-gold" : "border-border hover:border-gold"
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

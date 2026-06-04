@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { useReferral } from "@/lib/store";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider, ThemePrompt, useTheme } from "@/lib/theme";
+import { SplashScreen } from "@/components/SplashScreen";
 
 function NotFoundComponent() {
   return (
@@ -40,7 +41,6 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
   const router = useRouter();
 
   return (
@@ -86,19 +86,21 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "Perfumes premium originais em Moçambique." },
       { property: "og:type", content: "website" },
       { property: "og:site_name", content: "AURA SCENTRA" },
-      // 👇 Substituir o URL abaixo pela imagem real de partilha (Open Graph)
-      { property: "og:image", content: "https://raw.githubusercontent.com/L4dino/Imagens-Aura-Scentra-/refs/heads/main/file_0000000055b471f4a593116c98495cd1.png" },
-      { name: "twitter:image", content: "https://raw.githubusercontent.com/L4dino/Imagens-Aura-Scentra-/refs/heads/main/file_0000000055b471f4a593116c98495cd1.png" },
-      { name: "twitter:card", content: "summary" },
+      { property: "og:image", content: "/__l5e/assets-v1/a3642fe5-316a-421c-bdf3-eb6c7c221ed7/aura-scentra-logo.png" },
+      { name: "twitter:image", content: "/__l5e/assets-v1/a3642fe5-316a-421c-bdf3-eb6c7c221ed7/aura-scentra-logo.png" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "theme-color", content: "#1d1a15" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "AURA SCENTRA" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
       },
-      // 👇 Substituir o href abaixo pelo ícone real (favicon) do site
-      { rel: "icon", href: "https://raw.githubusercontent.com/L4dino/Imagens-Aura-Scentra-/refs/heads/main/Logo%20tipo.jpg" },
-      { rel: "apple-touch-icon", href: "https://raw.githubusercontent.com/L4dino/Imagens-Aura-Scentra-/refs/heads/main/Logo%20tipo.jpg" },
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/icon-192.png" },
     ],
   }),
   shellComponent: RootShell,
@@ -145,6 +147,8 @@ function RootComponent() {
           </div>
           <ToasterThemed />
           <ThemePrompt />
+          <PwaRegistration />
+          <SplashScreen />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
@@ -154,4 +158,30 @@ function RootComponent() {
 function ToasterThemed() {
   const { theme } = useTheme();
   return <Toaster theme={theme} position="top-center" richColors />;
+}
+
+function PwaRegistration() {
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    const isIframe = (() => {
+      try {
+        return window.self !== window.top;
+      } catch {
+        return true;
+      }
+    })();
+    const host = window.location.hostname;
+    const isPreview = host.includes("id-preview--") || host.includes("lovableproject.com") || host.includes("localhost");
+    if (isIframe || isPreview) {
+      navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
+      return;
+    }
+    const register = () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    };
+    if (document.readyState === "complete") register();
+    else window.addEventListener("load", register, { once: true });
+    return () => window.removeEventListener("load", register);
+  }, []);
+  return null;
 }

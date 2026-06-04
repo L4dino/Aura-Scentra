@@ -3,10 +3,13 @@ import { useAuth } from "@/lib/auth";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { Nhoguista, Produto, Pedido } from "@/lib/types";
+import { normalizePedidoItems } from "@/lib/types";
 import { formatMZN } from "@/lib/format";
 import { toast } from "sonner";
-import { Copy, Share2, Link2, TrendingUp, Wallet, Package, Clock, Phone } from "lucide-react";
+import { Copy, Share2, Link2, MousePointerClick, CheckCircle2, Package, Clock, Phone } from "lucide-react";
 import { WHATSAPP_NUMBER } from "@/lib/supabase";
+import { track } from "@/lib/events";
+import { NHOGUISTA_SEM_STOCK_SETTING, getBooleanSetting } from "@/lib/settings";
 
 export const Route = createFileRoute("/nhoguista")({ component: Page });
 
@@ -42,10 +45,19 @@ function Apply({ userId, onCreated }: { userId: string; onCreated: (n: Nhoguista
   const [telefone, setTelefone] = useState("");
   const [provincia, setProvincia] = useState("");
   const [tipo, setTipo] = useState<"sem_stock" | "com_stock">("sem_stock");
+  const [semStockOpen, setSemStockOpen] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getBooleanSetting(NHOGUISTA_SEM_STOCK_SETTING, true).then((result) => {
+      setSemStockOpen(result.value);
+      if (!result.value) setTipo("com_stock");
+    });
+  }, []);
 
   const apply = async () => {
     if (!telefone || !provincia) return toast.error("Preencha todos os campos");
+    if (tipo === "sem_stock" && !semStockOpen) return toast.error("Candidaturas sem stock estão temporariamente inactivas");
     setBusy(true);
     const codigo = "REV-" + Math.random().toString(36).slice(2, 7).toUpperCase();
     // sem_stock = auto-aprovado (dashboard de partilha). com_stock = pendente (admin contacta).
@@ -73,11 +85,12 @@ function Apply({ userId, onCreated }: { userId: string; onCreated: (n: Nhoguista
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={() => setTipo("sem_stock")}
-            className={`rounded-md border-2 px-3 py-3 text-left text-xs transition ${tipo === "sem_stock" ? "border-gold bg-gold/5" : "border-border bg-background/40"}`}
+            onClick={() => { if (semStockOpen) setTipo("sem_stock"); }}
+            disabled={!semStockOpen}
+            className={`rounded-md border-2 px-3 py-3 text-left text-xs transition ${tipo === "sem_stock" ? "border-gold bg-gold/5" : "border-border bg-background/40"} ${!semStockOpen ? "cursor-not-allowed opacity-45" : ""}`}
           >
             <p className="font-semibold uppercase tracking-widest text-gold">Sem stock</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">Partilha links e ganha comissão. Acesso imediato.</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{semStockOpen ? "Partilha links e ganha comissão. Acesso imediato." : "Candidaturas temporariamente inactivas."}</p>
           </button>
           <button
             type="button"
@@ -105,6 +118,7 @@ function Dashboard({ n }: { n: Nhoguista }) {
   const [tab, setTab] = useState<"produtos" | "pedidos">("produtos");
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [evCounts, setEvCounts] = useState({ shares: 0, finalizar: 0 });
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const storeLink = `${origin}/?ref=${n.codigo}`;
 
@@ -113,25 +127,28 @@ function Dashboard({ n }: { n: Nhoguista }) {
       .then(({ data }) => setProdutos((data ?? []) as Produto[]));
     supabase.from("pedidos").select("*").eq("nhoguista_codigo", n.codigo).order("created_at", { ascending: false })
       .then(({ data }) => setPedidos((data ?? []) as Pedido[]));
+    supabase.from("eventos").select("tipo").eq("nhoguista_codigo", n.codigo)
+      .then(({ data }) => {
+        const evs = (data ?? []) as { tipo: string }[];
+        setEvCounts({
+          shares: evs.filter((e) => e.tipo === "share_link").length,
+          finalizar: evs.filter((e) => e.tipo === "click_finalizar").length,
+        });
+      });
   }, [n.codigo]);
 
-  const stats = useMemo(() => {
-    const totalVendas = pedidos.reduce((s, p) => s + p.total, 0);
-    const totalComissao = pedidos.reduce((sum, p) => {
-      return sum + p.items.reduce((s, it) => {
-        const prod = produtos.find((pr) => pr.id === it.id);
-        return s + (prod?.comissao_valor ?? 0) * it.qty;
-      }, 0);
-    }, 0);
-    return { totalVendas, totalComissao, qtd: pedidos.length };
-  }, [pedidos, produtos]);
+  const stats = useMemo(() => ({ qtd: pedidos.length }), [pedidos]);
 
   const copy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     toast.success(`${label} copiado`);
+    track("share_link", null, n.codigo);
+    setEvCounts((c) => ({ ...c, shares: c.shares + 1 }));
   };
 
   const share = (title: string, url: string) => {
+    track("share_link", null, n.codigo);
+    setEvCounts((c) => ({ ...c, shares: c.shares + 1 }));
     if (typeof navigator !== "undefined" && navigator.share) {
       navigator.share({ title, url, text: `${title} — AURA SCENTRA` }).catch(() => copy(url, "Link"));
     } else {
@@ -185,10 +202,13 @@ function Dashboard({ n }: { n: Nhoguista }) {
 
       {/* Stats */}
       <div className="mt-8 grid gap-3 sm:grid-cols-3">
-        <Stat icon={<Package className="h-4 w-4" />} label="Pedidos" value={String(stats.qtd)} />
-        <Stat icon={<TrendingUp className="h-4 w-4" />} label="Vendas" value={formatMZN(stats.totalVendas)} />
-        <Stat icon={<Wallet className="h-4 w-4" />} label="Comissão" value={formatMZN(stats.totalComissao)} highlight />
+        <Stat icon={<Share2 className="h-4 w-4" />} label="Partilhas" value={String(evCounts.shares)} />
+        <Stat icon={<CheckCircle2 className="h-4 w-4" />} label="Cliques finalizar" value={String(evCounts.finalizar)} />
+        <Stat icon={<Package className="h-4 w-4" />} label="Pedidos gerados" value={String(stats.qtd)} highlight />
       </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Métricas reais do fluxo manual via WhatsApp. Os valores financeiros são combinados directamente com o cliente.
+      </p>
 
       {/* Link geral da loja */}
       <div className="mt-6 rounded-xl border border-gold/30 bg-gradient-to-r from-gold/10 to-transparent p-5">
@@ -249,23 +269,16 @@ function Dashboard({ n }: { n: Nhoguista }) {
       {tab === "pedidos" && (
         <div className="mt-6 space-y-2">
           {pedidos.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Ainda sem pedidos com o seu código.</p>}
-          {pedidos.map((p) => {
-            const comissao = p.items.reduce((s, it) => {
-              const prod = produtos.find((pr) => pr.id === it.id);
-              return s + (prod?.comissao_valor ?? 0) * it.qty;
-            }, 0);
-            return (
+          {pedidos.map((p) => (
               <div key={p.id} className="rounded-lg border border-border/60 bg-card p-4 text-sm">
                 <div className="flex items-center justify-between">
                   <p className="font-medium">{p.nome_cliente}</p>
-                  <span className="text-gold">{formatMZN(p.total)}</span>
+                  <span className="rounded-full bg-gold/10 px-2 py-0.5 text-[10px] uppercase tracking-widest text-gold">{p.status}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">{new Date(p.created_at).toLocaleString("pt-MZ")} • {p.localizacao}</p>
-                <p className="mt-1 text-xs">{p.items.map((i) => `${i.nome} x${i.qty}`).join(", ")}</p>
-                <p className="mt-2 text-xs text-emerald-400">Sua comissão: <span className="font-semibold">{formatMZN(comissao)}</span></p>
+                <p className="mt-1 text-xs">{normalizePedidoItems(p.items).map((i) => `${i.nome} x${i.qty}`).join(", ") || "Itens não detalhados"}</p>
               </div>
-            );
-          })}
+          ))}
         </div>
       )}
     </div>
