@@ -17,6 +17,11 @@ export interface Produto {
   stock: number;
   provincias: string[] | string | null;
   created_at: string;
+  preco_revendedor?: number | null;
+  preco_venda_sugerido?: number | null;
+  qty_minima_revenda?: number | null;
+  disponivel_com_stock?: boolean | null;
+  disponivel_sem_stock?: boolean | null;
 }
 
 export interface Banner {
@@ -52,6 +57,9 @@ export interface Nhoguista {
   provincia: string | null;
   status: "pendente" | "aprovado" | "rejeitado";
   created_at: string;
+  tipo?: "sem_stock" | "com_stock" | null;
+  troca_aprovada?: boolean | null;
+  tipo_pendente?: "sem_stock" | "com_stock" | null;
 }
 
 export interface CartItem {
@@ -119,4 +127,49 @@ export interface Notificacao {
   mensagem: string | null;
   lida: boolean;
   created_at: string;
+}
+
+export type RequisicaoStatus = "pendente" | "aprovada" | "entregue" | "cancelada";
+
+export interface RequisicaoItem {
+  produto_id: string;
+  nome: string;
+  qty: number;
+  preco_revendedor?: number | null;
+  preco_venda_sugerido?: number | null;
+  observacao?: string | null;
+}
+
+export interface Requisicao {
+  id: string;
+  codigo: string;
+  nhoguista_id?: string | null;
+  nhoguista_codigo?: string | null;
+  user_id?: string | null;
+  nome_revendedor: string | null;
+  telefone: string | null;
+  items: RequisicaoItem[] | string | null;
+  total_estimado: number;
+  observacao: string | null;
+  status: RequisicaoStatus;
+  created_at: string;
+}
+
+export function normalizeRequisicaoItems(value: unknown): RequisicaoItem[] {
+  const raw = typeof value === "string" ? safeJsonReq(value) : value;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((it): it is Record<string, unknown> => !!it && typeof it === "object")
+    .map((it) => ({
+      produto_id: String(it.produto_id ?? ""),
+      nome: typeof it.nome === "string" ? it.nome : "Produto",
+      qty: Number(it.qty ?? 1) || 1,
+      preco_revendedor: it.preco_revendedor === undefined ? null : Number(it.preco_revendedor) || 0,
+      preco_venda_sugerido: it.preco_venda_sugerido === undefined ? null : Number(it.preco_venda_sugerido) || 0,
+      observacao: typeof it.observacao === "string" ? it.observacao : null,
+    }));
+}
+
+function safeJsonReq(value: string): unknown {
+  try { return JSON.parse(value); } catch { return null; }
 }

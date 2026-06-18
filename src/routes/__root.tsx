@@ -17,6 +17,8 @@ import { useReferral } from "@/lib/store";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider, ThemePrompt, useTheme } from "@/lib/theme";
 import { SplashScreen } from "@/components/SplashScreen";
+import { RealtimeNotifier } from "@/components/RealtimeNotifier";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 
 function NotFoundComponent() {
   return (
@@ -92,6 +94,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "theme-color", content: "#1d1a15" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-title", content: "AURA SCENTRA" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
+      { name: "mobile-web-app-capable", content: "yes" },
+      { name: "application-name", content: "AURA SCENTRA" },
     ],
     links: [
       {
@@ -149,6 +154,8 @@ function RootComponent() {
           <ThemePrompt />
           <PwaRegistration />
           <SplashScreen />
+          <RealtimeNotifier />
+          <PwaInstallPrompt />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

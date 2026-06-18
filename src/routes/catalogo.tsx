@@ -7,11 +7,12 @@ import { z } from "zod";
 import { zodValidator } from "@tanstack/zod-adapter";
 import { useEffect, useState } from "react";
 import { useRegion, detectRegion, PROVINCIAS, isAvailableInRegion } from "@/lib/region";
-import { MapPin, X } from "lucide-react";
+import { MapPin, X, ChevronDown, Check } from "lucide-react";
 
 const search = z.object({
   cat: z.enum(["masculino", "feminino", "unissex"]).optional(),
   tag: z.string().optional(),
+  marca: z.string().optional(),
   page: z.number().default(1),
 });
 
@@ -23,10 +24,16 @@ export const Route = createFileRoute("/catalogo")({
 const PER_PAGE = 4;
 
 function Catalogo() {
-  const { cat, tag, page } = Route.useSearch();
+  const { cat, tag, marca, page } = Route.useSearch();
   const navigate = useNavigate({ from: "/catalogo" });
   const { active: regionActive, provincia, setActive, setProvincia, toggle } = useRegion();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [brandsOpen, setBrandsOpen] = useState(false);
+
+  const selectedBrands = (marca ?? "")
+    .split(",")
+    .map((s: string) => s.trim().toLowerCase())
+    .filter(Boolean);
 
   // Detecção automática (só se ainda não houver província definida)
   useEffect(() => {
@@ -49,7 +56,7 @@ function Catalogo() {
   };
 
   const { data, isLoading } = useQuery({
-    queryKey: ["produtos", cat, tag, page, regionActive, provincia],
+    queryKey: ["produtos", cat, tag, regionActive, provincia],
     queryFn: async () => {
       let q = supabase.from("produtos").select("*", { count: "exact" }).order("created_at", { ascending: false });
       if (cat) q = q.eq("categoria", cat);
@@ -59,14 +66,60 @@ function Catalogo() {
       if (regionActive && provincia) {
         items = items.filter((p) => isAvailableInRegion(p.provincias ?? null, provincia));
       }
-      const total = items.length;
-      const from = (page - 1) * PER_PAGE;
-      items = items.slice(from, from + PER_PAGE);
-      return { items, count: total || (count ?? 0) };
+      return { items, count: items.length || (count ?? 0) };
     },
   });
 
-  const totalPages = Math.max(1, Math.ceil((data?.count ?? 0) / PER_PAGE));
+  const allItems = data?.items ?? [];
+
+  // Build brand counts from current category/tag/region scope
+  const brandCounts = new Map<string, { label: string; count: number }>();
+  allItems.forEach((p) => {
+    const label = (p.marca ?? "").trim();
+    if (!label) return;
+    const key = label.toLowerCase();
+    const existing = brandCounts.get(key);
+    if (existing) existing.count += 1;
+    else brandCounts.set(key, { label, count: 1 });
+  });
+  const brands = Array.from(brandCounts.entries())
+    .map(([key, v]) => ({ key, label: v.label, count: v.count }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  const filteredByBrand = selectedBrands.length === 0
+    ? allItems
+    : allItems.filter((p) => p.marca && selectedBrands.includes(p.marca.trim().toLowerCase()));
+
+  const totalCount = filteredByBrand.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PER_PAGE));
+  const from = (page - 1) * PER_PAGE;
+  const pageItems = filteredByBrand.slice(from, from + PER_PAGE);
+
+  const toggleBrand = (key: string) => {
+    const set = new Set(selectedBrands);
+    if (set.has(key)) set.delete(key);
+    else set.add(key);
+    const next = Array.from(set);
+    navigate({
+      search: (prev: z.infer<typeof search>) => ({
+        ...prev,
+        marca: next.length ? next.join(",") : undefined,
+        page: 1,
+      }),
+    });
+  };
+
+  const clearBrands = () => {
+    navigate({
+      search: (prev: z.infer<typeof search>) => ({ ...prev, marca: undefined, page: 1 }),
+    });
+  };
+
+  const brandsLabel = selectedBrands.length === 0
+    ? "Todas as marcas"
+    : selectedBrands.length === 1
+      ? (brands.find((b) => b.key === selectedBrands[0])?.label ?? "1 marca")
+      : `${selectedBrands.length} marcas`;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12">
@@ -132,18 +185,76 @@ function Catalogo() {
         <Chip active={tag === "mais_vendido"} onClick={() => navigate({ search: { tag: "mais_vendido", page: 1 } })}>Mais vendidos</Chip>
       </div>
 
+      {/* Filtro por marcas */}
+      <div className="relative mb-8">
+        <button
+          onClick={() => setBrandsOpen((v) => !v)}
+          className="inline-flex w-full max-w-xs items-center justify-between gap-2 rounded-full border border-border bg-background/40 px-4 py-2 text-xs uppercase tracking-widest text-muted-foreground transition hover:border-gold hover:text-foreground sm:w-auto"
+          aria-expanded={brandsOpen}
+          aria-haspopup="listbox"
+        >
+          <span className="truncate">{brandsLabel}</span>
+          <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${brandsOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        {brandsOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setBrandsOpen(false)} />
+            <div
+              role="listbox"
+              className="absolute left-0 z-40 mt-2 max-h-80 w-72 overflow-y-auto rounded-xl border border-border/60 bg-card p-2 shadow-xl"
+            >
+              <button
+                onClick={clearBrands}
+                className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-muted/40"
+              >
+                <span className="flex items-center gap-2">
+                  <span className={`flex h-4 w-4 items-center justify-center rounded border ${selectedBrands.length === 0 ? "border-gold bg-gold text-primary-foreground" : "border-border"}`}>
+                    {selectedBrands.length === 0 && <Check className="h-3 w-3" />}
+                  </span>
+                  Todas as marcas
+                </span>
+                <span className="text-xs text-muted-foreground">{allItems.length}</span>
+              </button>
+              {brands.length === 0 ? (
+                <p className="px-3 py-4 text-center text-xs text-muted-foreground">Sem marcas disponíveis.</p>
+              ) : (
+                brands.map((b) => {
+                  const checked = selectedBrands.includes(b.key);
+                  return (
+                    <button
+                      key={b.key}
+                      onClick={() => toggleBrand(b.key)}
+                      className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-muted/40"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-gold bg-gold text-primary-foreground" : "border-border"}`}>
+                          {checked && <Check className="h-3 w-3" />}
+                        </span>
+                        <span className="truncate">{b.label}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">{b.count}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="aspect-square animate-pulse rounded-xl bg-card" />
           ))}
         </div>
-      ) : data?.items.length === 0 ? (
+      ) : pageItems.length === 0 ? (
         <p className="py-16 text-center text-sm text-muted-foreground">Nenhum produto encontrado.</p>
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            {data?.items.map((p) => <ProductCard key={p.id} p={p} />)}
+            {pageItems.map((p) => <ProductCard key={p.id} p={p} />)}
           </div>
           {totalPages > 1 && (
             <div className="mt-10 flex items-center justify-center gap-2">

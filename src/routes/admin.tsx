@@ -6,13 +6,16 @@ import type { Produto, Nhoguista, Pedido, Banner } from "@/lib/types";
 import { normalizePedidoItems } from "@/lib/types";
 import { formatMZN } from "@/lib/format";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, X, Upload, Package, Users, ShoppingBag, TrendingUp, Eye, MousePointerClick, MessageCircle, CheckCircle2, Image as ImageIcon, UserCog, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Upload, Package, Users, ShoppingBag, TrendingUp, Eye, MousePointerClick, MessageCircle, CheckCircle2, Image as ImageIcon, UserCog, Search, ChevronLeft, ChevronRight, ClipboardList } from "lucide-react";
 import { PROVINCIAS, normalizeProvincias } from "@/lib/region";
-import { NHOGUISTA_SEM_STOCK_SETTING, getBooleanSetting, setBooleanSetting } from "@/lib/settings";
+import { NHOGUISTA_SEM_STOCK_SETTING, NHOGUISTA_COM_STOCK_SETTING, getBooleanSetting, setBooleanSetting } from "@/lib/settings";
+import { normalizeRequisicaoItems } from "@/lib/types";
+import type { Requisicao } from "@/lib/types";
+import { whatsappPedidoLink, whatsappLink } from "@/lib/whatsapp";
 
 export const Route = createFileRoute("/admin")({ component: Admin });
 
-type Tab = "stats" | "produtos" | "banners" | "nhoguistas" | "pedidos" | "utilizadores";
+type Tab = "stats" | "produtos" | "banners" | "nhoguistas" | "pedidos" | "requisicoes" | "utilizadores";
 
 function Admin() {
   const { profile, loading } = useAuth();
@@ -26,6 +29,7 @@ function Admin() {
     { id: "banners", label: "Banners", icon: <ImageIcon className="h-4 w-4" /> },
     { id: "nhoguistas", label: "Nhoguistas", icon: <Users className="h-4 w-4" /> },
     { id: "pedidos", label: "Pedidos", icon: <ShoppingBag className="h-4 w-4" /> },
+    { id: "requisicoes", label: "Requisições", icon: <ClipboardList className="h-4 w-4" /> },
     { id: "utilizadores", label: "Utilizadores", icon: <UserCog className="h-4 w-4" /> },
   ];
 
@@ -45,6 +49,7 @@ function Admin() {
         {tab === "banners" && <Banners />}
         {tab === "nhoguistas" && <Nhogs />}
         {tab === "pedidos" && <Pedidos />}
+        {tab === "requisicoes" && <Requisicoes />}
         {tab === "utilizadores" && <Utilizadores />}
       </div>
     </div>
@@ -121,6 +126,8 @@ const emptyForm = {
   descricao: "", destaque: false, tag: "", stock: "10",
   comissao_valor: "0", avaliacao: "4.8", num_avaliacoes: "0",
   provincias: [] as string[], todas_regioes: true,
+  preco_revendedor: "", preco_venda_sugerido: "", qty_minima_revenda: "1",
+  disponivel_com_stock: true, disponivel_sem_stock: true,
 };
 
 function Produtos() {
@@ -177,6 +184,11 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
     num_avaliacoes: String(initial.num_avaliacoes ?? 0),
     provincias: normalizeProvincias(initial.provincias),
     todas_regioes: normalizeProvincias(initial.provincias).length === 0,
+    preco_revendedor: initial.preco_revendedor != null ? String(initial.preco_revendedor) : "",
+    preco_venda_sugerido: initial.preco_venda_sugerido != null ? String(initial.preco_venda_sugerido) : "",
+    qty_minima_revenda: String(initial.qty_minima_revenda ?? 1),
+    disponivel_com_stock: initial.disponivel_com_stock !== false,
+    disponivel_sem_stock: initial.disponivel_sem_stock !== false,
   } : emptyForm);
   const [busy, setBusy] = useState(false);
 
@@ -202,15 +214,27 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
       avaliacao: Number(form.avaliacao) || null,
       num_avaliacoes: Number(form.num_avaliacoes) || 0,
       provincias: form.todas_regioes ? null : selectedProvincias,
+      preco_revendedor: form.preco_revendedor ? Number(form.preco_revendedor) : null,
+      preco_venda_sugerido: form.preco_venda_sugerido ? Number(form.preco_venda_sugerido) : null,
+      qty_minima_revenda: Number(form.qty_minima_revenda) || 1,
+      disponivel_com_stock: form.disponivel_com_stock,
+      disponivel_sem_stock: form.disponivel_sem_stock,
     };
     if (!form.todas_regioes && selectedProvincias.length === 0) {
       setBusy(false);
       return toast.error("Selecione pelo menos uma província ou marque todas as províncias");
     }
-    const op = initial
-      ? supabase.from("produtos").update(payload).eq("id", initial.id)
-      : supabase.from("produtos").insert(payload);
-    const { error } = await op;
+    const tryOp = (p: typeof payload | Record<string, unknown>) => initial
+      ? supabase.from("produtos").update(p).eq("id", initial.id)
+      : supabase.from("produtos").insert(p);
+    let { error } = await tryOp(payload);
+    if (error && /column .*"?(preco_revendedor|preco_venda_sugerido|qty_minima_revenda|disponivel_com_stock|disponivel_sem_stock)"?/i.test(error.message)) {
+      // Fallback se as novas colunas ainda não existirem
+      const { preco_revendedor: _a, preco_venda_sugerido: _b, qty_minima_revenda: _c, disponivel_com_stock: _d, disponivel_sem_stock: _e, ...legacy } = payload;
+      void _a; void _b; void _c; void _d; void _e;
+      const retry = await tryOp(legacy);
+      error = retry.error;
+    }
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success(initial ? "Produto atualizado" : "Produto criado");
@@ -254,10 +278,25 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
             <Field label="Comissão Nhoguista (MZN)"><input type="number" className={inp} value={form.comissao_valor} onChange={(e) => F("comissao_valor", e.target.value)} /></Field>
             <Field label="Avaliação (0-5)"><input type="number" step="0.1" className={inp} value={form.avaliacao} onChange={(e) => F("avaliacao", e.target.value)} /></Field>
             <Field label="Nº avaliações"><input type="number" className={inp} value={form.num_avaliacoes} onChange={(e) => F("num_avaliacoes", e.target.value)} /></Field>
+            <Field label="Preço revendedor (MZN)"><input type="number" className={inp} value={form.preco_revendedor} onChange={(e) => F("preco_revendedor", e.target.value)} placeholder="opcional" /></Field>
+            <Field label="Preço venda sugerido (MZN)"><input type="number" className={inp} value={form.preco_venda_sugerido} onChange={(e) => F("preco_venda_sugerido", e.target.value)} placeholder="opcional" /></Field>
+            <Field label="Qty mínima revenda"><input type="number" className={inp} value={form.qty_minima_revenda} onChange={(e) => F("qty_minima_revenda", e.target.value)} /></Field>
             <Field label="Destaque na home">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.destaque} onChange={(e) => F("destaque", e.target.checked)} />
                 <span className="text-muted-foreground">Mostrar em destaque</span>
+              </label>
+            </Field>
+            <Field label="Disponível para Nhoguista com stock">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.disponivel_com_stock} onChange={(e) => F("disponivel_com_stock", e.target.checked)} />
+                <span className="text-muted-foreground">Visível no painel com stock</span>
+              </label>
+            </Field>
+            <Field label="Disponível para Nhoguista sem stock">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.disponivel_sem_stock} onChange={(e) => F("disponivel_sem_stock", e.target.checked)} />
+                <span className="text-muted-foreground">Visível no painel sem stock</span>
               </label>
             </Field>
           </div>
@@ -483,6 +522,7 @@ async function loadUsersFallback(page: number, filter: "all" | "active" | "inact
 function Nhogs() {
   const [items, setItems] = useState<(Nhoguista & { profiles?: { nome: string | null } })[]>([]);
   const [semStockOpen, setSemStockOpen] = useState(true);
+  const [comStockOpen, setComStockOpen] = useState(true);
   const [settingMissing, setSettingMissing] = useState(false);
   const load = async () => {
     const { data, error } = await supabase.from("nhoguistas").select("*").order("created_at", { ascending: false });
@@ -506,42 +546,98 @@ function Nhogs() {
       setSemStockOpen(result.value);
       setSettingMissing(result.missingTable);
     });
+    getBooleanSetting(NHOGUISTA_COM_STOCK_SETTING, true).then((result) => {
+      setComStockOpen(result.value);
+    });
   }, []);
   const set = async (id: string, status: string) => {
-    const { error } = await supabase.from("nhoguistas").update({ status }).eq("id", id);
+    // Se rejeitar/cancelar — exigir nova aprovação na próxima troca de modo
+    const payload: Record<string, unknown> = { status };
+    if (status !== "aprovado") {
+      payload.troca_aprovada = false;
+      payload.tipo_pendente = null;
+    }
+    let { error } = await supabase.from("nhoguistas").update(payload).eq("id", id);
+    if (error && /troca_aprovada|tipo_pendente/i.test(error.message)) {
+      const retry = await supabase.from("nhoguistas").update({ status }).eq("id", id);
+      error = retry.error;
+    }
     if (error) return toast.error(error.message);
     toast.success(`Nhoguista ${status}`); load();
   };
-  const toggleSemStock = async () => {
-    const next = !semStockOpen;
-    const { error } = await setBooleanSetting(NHOGUISTA_SEM_STOCK_SETTING, next);
+  const approveSwitch = async (n: Nhoguista) => {
+    if (!n.tipo_pendente) return;
+    const { error } = await supabase.from("nhoguistas")
+      .update({ tipo: n.tipo_pendente, tipo_pendente: null, troca_aprovada: true })
+      .eq("id", n.id);
+    if (error) return toast.error(error.message);
+    toast.success("Troca de modo aprovada"); load();
+  };
+  const rejectSwitch = async (n: Nhoguista) => {
+    const { error } = await supabase.from("nhoguistas")
+      .update({ tipo_pendente: null })
+      .eq("id", n.id);
+    if (error) return toast.error(error.message);
+    toast.success("Pedido de troca rejeitado"); load();
+  };
+  const toggleSetting = async (key: string, current: boolean, setter: (v: boolean) => void, label: string) => {
+    const next = !current;
+    const { error } = await setBooleanSetting(key, next);
     if (error) return toast.error(error);
-    setSemStockOpen(next);
-    toast.success(next ? "Candidaturas sem stock activadas" : "Candidaturas sem stock desactivadas");
+    setter(next);
+    toast.success(`${label} ${next ? "activadas" : "desactivadas"}`);
   };
   return (
     <div className="space-y-2">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card p-4">
-        <div>
-          <p className="text-sm font-medium">Candidaturas de Nhoguistas sem stock</p>
-          <p className="text-xs text-muted-foreground">Controla se novos revendedores sem stock podem candidatar-se automaticamente.</p>
-          {settingMissing && <p className="mt-1 text-[11px] text-gold">Instale a tabela app_settings pelo SQL indicado para guardar esta opção na base de dados.</p>}
+      <div className="mb-4 grid gap-3 md:grid-cols-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card p-4">
+          <div>
+            <p className="text-sm font-medium">Candidaturas — sem stock</p>
+            <p className="text-xs text-muted-foreground">Controla se novos revendedores sem stock podem candidatar-se.</p>
+            {settingMissing && <p className="mt-1 text-[11px] text-gold">Instale a tabela app_settings pelo SQL indicado.</p>}
+          </div>
+          <button
+            onClick={() => toggleSetting(NHOGUISTA_SEM_STOCK_SETTING, semStockOpen, setSemStockOpen, "Candidaturas sem stock")}
+            className={`rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-widest transition ${semStockOpen ? "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10" : "border-destructive/40 text-destructive hover:bg-destructive/10"}`}
+          >
+            {semStockOpen ? "Desactivar" : "Activar"}
+          </button>
         </div>
-        <button
-          onClick={toggleSemStock}
-          className={`rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-widest transition ${semStockOpen ? "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10" : "border-destructive/40 text-destructive hover:bg-destructive/10"}`}
-        >
-          {semStockOpen ? "Desactivar" : "Activar"}
-        </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-card p-4">
+          <div>
+            <p className="text-sm font-medium">Candidaturas — com stock</p>
+            <p className="text-xs text-muted-foreground">Controla se novos revendedores com stock podem candidatar-se.</p>
+          </div>
+          <button
+            onClick={() => toggleSetting(NHOGUISTA_COM_STOCK_SETTING, comStockOpen, setComStockOpen, "Candidaturas com stock")}
+            className={`rounded-md border px-4 py-2 text-xs font-semibold uppercase tracking-widest transition ${comStockOpen ? "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10" : "border-destructive/40 text-destructive hover:bg-destructive/10"}`}
+          >
+            {comStockOpen ? "Desactivar" : "Activar"}
+          </button>
+        </div>
       </div>
       {items.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Sem candidaturas.</p>}
       {items.map((n) => (
         <div key={n.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-card p-3 text-sm">
           <div className="flex-1 min-w-[200px]">
             <p className="font-medium">{n.profiles?.nome ?? n.codigo}</p>
-            <p className="text-xs text-muted-foreground">{n.codigo} • {n.provincia} • {n.telefone}</p>
+            <p className="text-xs text-muted-foreground">
+              {n.codigo} • {n.provincia} • {n.telefone}
+              {n.tipo && <> • modo: <span className="text-gold uppercase">{n.tipo}</span></>}
+            </p>
+            {n.tipo_pendente && (
+              <p className="mt-1 text-[11px] text-gold">
+                Pedido de troca para <span className="uppercase">{n.tipo_pendente}</span>
+              </p>
+            )}
           </div>
           <span className={`rounded-full px-2 py-1 text-[10px] uppercase tracking-widest ${n.status === "aprovado" ? "bg-emerald-500/10 text-emerald-400" : n.status === "rejeitado" ? "bg-destructive/10 text-destructive" : "bg-gold/10 text-gold"}`}>{n.status}</span>
+          {n.tipo_pendente && (
+            <>
+              <button onClick={() => approveSwitch(n)} className="rounded border border-emerald-500/40 px-3 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10">Aprovar troca</button>
+              <button onClick={() => rejectSwitch(n)} className="rounded border border-destructive/40 px-3 py-1 text-xs text-destructive hover:bg-destructive/10">Rejeitar troca</button>
+            </>
+          )}
           {n.status !== "aprovado" && <button onClick={() => set(n.id, "aprovado")} className="rounded border border-emerald-500/40 px-3 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10">Aprovar</button>}
           {n.status !== "rejeitado" && <button onClick={() => set(n.id, "rejeitado")} className="rounded border border-destructive/40 px-3 py-1 text-xs text-destructive hover:bg-destructive/10">Rejeitar</button>}
         </div>
@@ -552,6 +648,7 @@ function Nhogs() {
 
 function Pedidos() {
   const [items, setItems] = useState<Pedido[]>([]);
+  const [details, setDetails] = useState<Pedido | null>(null);
   const load = () => supabase.from("pedidos").select("*").order("created_at", { ascending: false }).then(({ data }) => setItems((data ?? []) as Pedido[]));
   useEffect(() => {
     load();
@@ -575,7 +672,12 @@ function Pedidos() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <p className="font-medium">{p.nome_cliente}</p>
-              <p className="text-xs text-muted-foreground">{p.localizacao} • {p.telefone} • {new Date(p.created_at).toLocaleString("pt-MZ")}</p>
+              <p className="text-xs text-muted-foreground">
+                {p.localizacao} •{" "}
+                {p.telefone ? (
+                  <a href={whatsappPedidoLink(p.nome_cliente, p.id, p.telefone)} target="_blank" rel="noreferrer" className="text-gold hover:underline">{p.telefone}</a>
+                ) : "—"} • {new Date(p.created_at).toLocaleString("pt-MZ")}
+              </p>
             </div>
             <span className="text-gold">{formatMZN(p.total)}</span>
           </div>
@@ -590,9 +692,186 @@ function Pedidos() {
               <option value="entregue">Entregue</option>
               <option value="cancelado">Cancelado</option>
             </select>
+            {p.telefone && (
+              <a href={whatsappPedidoLink(p.nome_cliente, p.id, p.telefone)} target="_blank" rel="noreferrer"
+                 className="inline-flex items-center gap-1 rounded border border-emerald-500/40 px-3 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10">
+                <MessageCircle className="h-3 w-3" /> Abrir WhatsApp
+              </a>
+            )}
+            <button onClick={() => setDetails(p)} className="inline-flex items-center gap-1 rounded border border-border px-3 py-1 text-xs hover:border-gold hover:text-gold">
+              <Eye className="h-3 w-3" /> Ver detalhes
+            </button>
           </div>
         </div>
       ))}
+      {details && <PedidoDetailsModal pedido={details} onClose={() => setDetails(null)} />}
+    </div>
+  );
+}
+
+function PedidoDetailsModal({ pedido, onClose }: { pedido: Pedido; onClose: () => void }) {
+  const items = normalizePedidoItems(pedido.items);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 md:items-center md:p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-border/60 bg-card md:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h3 className="font-display text-xl">Pedido #{pedido.id.slice(0, 8).toUpperCase()}</h3>
+          <button onClick={onClose} className="rounded p-1 text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-3 p-5 text-sm">
+          <div><span className="text-muted-foreground">Cliente:</span> {pedido.nome_cliente}</div>
+          <div><span className="text-muted-foreground">Telefone:</span> {pedido.telefone ?? "—"}</div>
+          <div><span className="text-muted-foreground">Localização:</span> {pedido.localizacao}</div>
+          <div><span className="text-muted-foreground">Status:</span> <span className="text-gold uppercase">{pedido.status}</span></div>
+          {pedido.nhoguista_codigo && <div><span className="text-muted-foreground">Ref nhoguista:</span> {pedido.nhoguista_codigo}</div>}
+          <div className="rounded-md border border-border/60 bg-background/40 p-3">
+            <p className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Itens</p>
+            <ul className="space-y-1 text-xs">
+              {items.map((i, idx) => (
+                <li key={idx} className="flex justify-between">
+                  <span>{i.nome} × {i.qty}{i.por_encomenda ? " ⚠️" : ""}</span>
+                  {typeof i.preco === "number" && <span className="text-gold">{formatMZN(i.preco * i.qty)}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <span className="text-muted-foreground">Total</span>
+            <span className="text-lg font-display text-gold">{formatMZN(pedido.total)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Requisicoes() {
+  const [items, setItems] = useState<Requisicao[]>([]);
+  const [missing, setMissing] = useState(false);
+  const [filter, setFilter] = useState<"all" | "pendente" | "aprovada" | "entregue" | "cancelada">("all");
+  const [details, setDetails] = useState<Requisicao | null>(null);
+  const load = async () => {
+    const { data, error } = await supabase.from("requisicoes").select("*").order("created_at", { ascending: false });
+    if (error) {
+      if (error.code === "42P01" || /relation .* does not exist/i.test(error.message)) {
+        setMissing(true); setItems([]); return;
+      }
+      toast.error(error.message); return;
+    }
+    setMissing(false);
+    setItems((data ?? []) as Requisicao[]);
+  };
+  useEffect(() => {
+    load();
+    const ch = supabase.channel("req-admin")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "requisicoes" }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
+  const setStatus = async (id: string, status: string) => {
+    const { error } = await supabase.from("requisicoes").update({ status }).eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success("Estado atualizado"); load();
+  };
+
+  if (missing) {
+    return (
+      <div className="rounded-lg border border-gold/40 bg-gold/5 p-6 text-sm">
+        <p className="font-semibold text-gold">Sistema de requisições não instalado</p>
+        <p className="mt-2 text-muted-foreground">Execute o script SQL <code className="text-gold">revendedor_stock_system.sql</code> no SQL Editor do Lovable Cloud para activar.</p>
+      </div>
+    );
+  }
+
+  const filtered = filter === "all" ? items : items.filter((r) => r.status === filter);
+  return (
+    <div className="space-y-2">
+      <div className="mb-3 flex flex-wrap gap-1 rounded-md border border-border bg-card p-1">
+        {(["all", "pendente", "aprovada", "entregue", "cancelada"] as const).map((f) => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`rounded px-3 py-1.5 text-[11px] uppercase tracking-widest transition ${filter === f ? "bg-gold text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            {f === "all" ? "Todas" : f}
+          </button>
+        ))}
+      </div>
+      {filtered.length === 0 && <p className="py-10 text-center text-sm text-muted-foreground">Sem requisições.</p>}
+      {filtered.map((r) => (
+        <div key={r.id} className="rounded-lg border border-border/60 bg-card p-4 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="font-mono text-gold">{r.codigo}</p>
+              <p className="text-xs">{r.nome_revendedor ?? "—"} <span className="text-muted-foreground">({r.nhoguista_codigo})</span></p>
+              <p className="text-xs text-muted-foreground">
+                {r.telefone ? (
+                  <a href={whatsappLink(`Olá, sobre a sua requisição ${r.codigo}…`, r.telefone)} target="_blank" rel="noreferrer" className="text-gold hover:underline">{r.telefone}</a>
+                ) : "—"} • {new Date(r.created_at).toLocaleString("pt-MZ")}
+              </p>
+            </div>
+            <span className="text-gold">{formatMZN(r.total_estimado ?? 0)}</span>
+          </div>
+          <p className="mt-2 text-xs">{normalizeRequisicaoItems(r.items).map((i) => `${i.nome} x${i.qty}`).join(", ")}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <select value={r.status} onChange={(e) => setStatus(r.id, e.target.value)} className="rounded border border-border bg-background px-2 py-1 text-xs">
+              <option value="pendente">Pendente</option>
+              <option value="aprovada">Aprovada</option>
+              <option value="entregue">Entregue</option>
+              <option value="cancelada">Cancelada</option>
+            </select>
+            {r.telefone && (
+              <a href={whatsappLink(`Olá ${r.nome_revendedor ?? ""}, sobre a requisição ${r.codigo}…`, r.telefone)} target="_blank" rel="noreferrer"
+                 className="inline-flex items-center gap-1 rounded border border-emerald-500/40 px-3 py-1 text-xs text-emerald-400 hover:bg-emerald-500/10">
+                <MessageCircle className="h-3 w-3" /> WhatsApp
+              </a>
+            )}
+            <button onClick={() => setDetails(r)} className="inline-flex items-center gap-1 rounded border border-border px-3 py-1 text-xs hover:border-gold hover:text-gold">
+              <Eye className="h-3 w-3" /> Ver detalhes
+            </button>
+          </div>
+        </div>
+      ))}
+      {details && <RequisicaoDetailsModal req={details} onClose={() => setDetails(null)} />}
+    </div>
+  );
+}
+
+function RequisicaoDetailsModal({ req, onClose }: { req: Requisicao; onClose: () => void }) {
+  const items = normalizeRequisicaoItems(req.items);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 md:items-center md:p-4" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl border border-border/60 bg-card md:rounded-2xl">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h3 className="font-display text-xl">{req.codigo}</h3>
+          <button onClick={onClose} className="rounded p-1 text-muted-foreground hover:text-foreground"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-3 p-5 text-sm">
+          <div><span className="text-muted-foreground">Revendedor:</span> {req.nome_revendedor ?? "—"}</div>
+          <div><span className="text-muted-foreground">Código:</span> {req.nhoguista_codigo ?? "—"}</div>
+          <div><span className="text-muted-foreground">Telefone:</span> {req.telefone ?? "—"}</div>
+          <div><span className="text-muted-foreground">Status:</span> <span className="text-gold uppercase">{req.status}</span></div>
+          <div className="rounded-md border border-border/60 bg-background/40 p-3">
+            <p className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Itens</p>
+            <ul className="space-y-1 text-xs">
+              {items.map((i, idx) => (
+                <li key={idx} className="flex flex-col gap-0.5 border-b border-border/40 pb-1 last:border-0">
+                  <div className="flex justify-between">
+                    <span>{i.nome} × {i.qty}</span>
+                    {i.preco_revendedor ? <span className="text-gold">{formatMZN(i.preco_revendedor * i.qty)}</span> : null}
+                  </div>
+                  {i.observacao && <span className="text-[10px] text-muted-foreground">obs: {i.observacao}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+          {req.observacao && (
+            <div><span className="text-muted-foreground">Observação:</span> {req.observacao}</div>
+          )}
+          <div className="flex items-center justify-between border-t border-border pt-3">
+            <span className="text-muted-foreground">Total estimado</span>
+            <span className="text-lg font-display text-gold">{formatMZN(req.total_estimado ?? 0)}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

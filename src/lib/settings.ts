@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 
 export const NHOGUISTA_SEM_STOCK_SETTING = "nhoguista_sem_stock_open";
+export const NHOGUISTA_COM_STOCK_SETTING = "nhoguista_com_stock_open";
 
 export type BooleanSettingResult = {
   value: boolean;

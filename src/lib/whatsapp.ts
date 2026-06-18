@@ -51,3 +51,46 @@ export function whatsappLink(message: string, phone: string = WHATSAPP_NUMBER): 
   const full = num.startsWith("258") ? num : `258${num}`;
   return `https://wa.me/${full}?text=${encodeURIComponent(message)}`;
 }
+
+export interface RequisicaoInfo {
+  codigo: string;
+  nomeRevendedor: string;
+  telefone?: string | null;
+  status: string;
+  observacao?: string | null;
+}
+
+export interface RequisicaoLinha {
+  nome: string;
+  qty: number;
+  preco_revendedor?: number | null;
+  observacao?: string | null;
+}
+
+export function buildRequisicaoMessage(items: RequisicaoLinha[], info: RequisicaoInfo): string {
+  const linhas = items.map((i) => {
+    const sub = i.preco_revendedor ? ` — ${formatMZN(i.preco_revendedor * i.qty)}` : "";
+    const obs = i.observacao ? `\n    obs: ${i.observacao}` : "";
+    return `• ${i.nome} (x${i.qty})${sub}${obs}`;
+  });
+  const total = items.reduce((s, i) => s + (Number(i.preco_revendedor ?? 0) * i.qty), 0);
+  const partes = [
+    `📦 NOVA REQUISIÇÃO ${info.codigo}`,
+    ``,
+    `Revendedor: ${info.nomeRevendedor}`,
+    info.telefone ? `Telefone: ${info.telefone}` : "",
+    `Status: ${info.status.toUpperCase()}`,
+    ``,
+    `Produtos:`,
+    ...linhas,
+    ``,
+    total > 0 ? `Total estimado: ${formatMZN(total)}` : "",
+    info.observacao ? `\nObservação: ${info.observacao}` : "",
+  ].filter(Boolean);
+  return partes.join("\n");
+}
+
+export function whatsappPedidoLink(nomeCliente: string, pedidoId: string, phone: string): string {
+  const msg = `Olá ${nomeCliente}, falo da AURA SCENTRA sobre o seu pedido #${pedidoId.slice(0, 8).toUpperCase()}.`;
+  return whatsappLink(msg, phone);
+}

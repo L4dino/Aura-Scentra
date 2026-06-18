@@ -9,7 +9,9 @@ import { toast } from "sonner";
 import { Copy, Share2, Link2, MousePointerClick, CheckCircle2, Package, Clock, Phone } from "lucide-react";
 import { WHATSAPP_NUMBER } from "@/lib/supabase";
 import { track } from "@/lib/events";
-import { NHOGUISTA_SEM_STOCK_SETTING, getBooleanSetting } from "@/lib/settings";
+import { NHOGUISTA_SEM_STOCK_SETTING, NHOGUISTA_COM_STOCK_SETTING, getBooleanSetting } from "@/lib/settings";
+import { DashboardComStock } from "@/components/DashboardComStock";
+import { ModeSwitchButton } from "@/components/ModeSwitchButton";
 
 export const Route = createFileRoute("/nhoguista")({ component: Page });
 
@@ -38,7 +40,12 @@ function Page() {
   );
 
   if (!n) return <Apply userId={user.id} onCreated={setN} />;
-  return <Dashboard n={n} />;
+  const refresh = async () => {
+    const { data } = await supabase.from("nhoguistas").select("*").eq("id", n.id).maybeSingle();
+    if (data) setN(data as Nhoguista);
+  };
+  if (n.tipo === "com_stock" && n.status === "aprovado") return <DashboardComStock n={n} onRefresh={refresh} />;
+  return <Dashboard n={n} onRefresh={refresh} />;
 }
 
 function Apply({ userId, onCreated }: { userId: string; onCreated: (n: Nhoguista) => void }) {
@@ -46,6 +53,7 @@ function Apply({ userId, onCreated }: { userId: string; onCreated: (n: Nhoguista
   const [provincia, setProvincia] = useState("");
   const [tipo, setTipo] = useState<"sem_stock" | "com_stock">("sem_stock");
   const [semStockOpen, setSemStockOpen] = useState(true);
+  const [comStockOpen, setComStockOpen] = useState(true);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -53,23 +61,37 @@ function Apply({ userId, onCreated }: { userId: string; onCreated: (n: Nhoguista
       setSemStockOpen(result.value);
       if (!result.value) setTipo("com_stock");
     });
+    getBooleanSetting(NHOGUISTA_COM_STOCK_SETTING, true).then((result) => {
+      setComStockOpen(result.value);
+    });
   }, []);
 
   const apply = async () => {
     if (!telefone || !provincia) return toast.error("Preencha todos os campos");
     if (tipo === "sem_stock" && !semStockOpen) return toast.error("Candidaturas sem stock estão temporariamente inactivas");
+    if (tipo === "com_stock" && !comStockOpen) return toast.error("Candidaturas com stock estão temporariamente inactivas");
     setBusy(true);
     const codigo = "REV-" + Math.random().toString(36).slice(2, 7).toUpperCase();
     // sem_stock = auto-aprovado (dashboard de partilha). com_stock = pendente (admin contacta).
     const status = tipo === "sem_stock" ? "aprovado" : "pendente";
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("nhoguistas")
-      .insert({ user_id: userId, codigo, telefone, provincia, status })
+      .insert({ user_id: userId, codigo, telefone, provincia, status, tipo })
       .select()
       .single();
+    if (error && /column .*tipo|"tipo"/i.test(error.message)) {
+      // fallback: schema sem coluna tipo
+      const retry = await supabase
+        .from("nhoguistas")
+        .insert({ user_id: userId, codigo, telefone, provincia, status })
+        .select()
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
     setBusy(false);
     if (error) return toast.error(error.message);
-    onCreated(data as Nhoguista);
+    onCreated({ ...(data as Nhoguista), tipo });
     toast.success(
       tipo === "sem_stock"
         ? "Bem-vindo Nhoguista! O seu painel está pronto."
@@ -94,11 +116,12 @@ function Apply({ userId, onCreated }: { userId: string; onCreated: (n: Nhoguista
           </button>
           <button
             type="button"
-            onClick={() => setTipo("com_stock")}
-            className={`rounded-md border-2 px-3 py-3 text-left text-xs transition ${tipo === "com_stock" ? "border-gold bg-gold/5" : "border-border bg-background/40"}`}
+            onClick={() => { if (comStockOpen) setTipo("com_stock"); }}
+            disabled={!comStockOpen}
+            className={`rounded-md border-2 px-3 py-3 text-left text-xs transition ${tipo === "com_stock" ? "border-gold bg-gold/5" : "border-border bg-background/40"} ${!comStockOpen ? "cursor-not-allowed opacity-45" : ""}`}
           >
             <p className="font-semibold uppercase tracking-widest text-gold">Com stock</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">Recebe produtos para revender. Admin contacta em 48h.</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">{comStockOpen ? "Recebe produtos para revender. Admin contacta em 48h." : "Candidaturas temporariamente inactivas."}</p>
           </button>
         </div>
         <input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="Telefone (ex: 84xxxxxxx)" className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm" />
@@ -114,7 +137,7 @@ function Apply({ userId, onCreated }: { userId: string; onCreated: (n: Nhoguista
   );
 }
 
-function Dashboard({ n }: { n: Nhoguista }) {
+function Dashboard({ n, onRefresh }: { n: Nhoguista; onRefresh: () => void }) {
   const [tab, setTab] = useState<"produtos" | "pedidos">("produtos");
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -124,7 +147,10 @@ function Dashboard({ n }: { n: Nhoguista }) {
 
   useEffect(() => {
     supabase.from("produtos").select("*").order("created_at", { ascending: false })
-      .then(({ data }) => setProdutos((data ?? []) as Produto[]));
+      .then(({ data }) => {
+        const all = (data ?? []) as Produto[];
+        setProdutos(all.filter((p) => p.disponivel_sem_stock !== false));
+      });
     supabase.from("pedidos").select("*").eq("nhoguista_codigo", n.codigo).order("created_at", { ascending: false })
       .then(({ data }) => setPedidos((data ?? []) as Pedido[]));
     supabase.from("eventos").select("tipo").eq("nhoguista_codigo", n.codigo)
@@ -198,6 +224,7 @@ function Dashboard({ n }: { n: Nhoguista }) {
           <h1 className="mt-1 font-display text-4xl">Painel</h1>
           <p className="mt-1 text-sm text-muted-foreground">Código: <span className="font-mono text-gold">{n.codigo}</span></p>
         </div>
+        <ModeSwitchButton n={n} onChanged={onRefresh} />
       </div>
 
       {/* Stats */}

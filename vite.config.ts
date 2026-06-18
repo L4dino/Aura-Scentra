@@ -6,7 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 // Custom server entry: src/server.ts (SSR error wrapper). See wrangler.jsonc "main".
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const envDefine: Record<string, string> = {};
   for (const [key, value] of Object.entries(loadEnv(mode, process.cwd(), "VITE_"))) {
     envDefine[`import.meta.env.${key}`] = JSON.stringify(value);
@@ -26,7 +26,9 @@ export default defineConfig(({ mode }) => {
       ],
     },
     plugins: [
-      cloudflare({ viteEnvironment: { name: "ssr" } }),
+      ...(command === "build"
+        ? [cloudflare({ viteEnvironment: { name: "ssr" } })]
+        : []),
       tailwindcss(),
       tsconfigPaths({ projects: ["./tsconfig.json"] }),
       tanstackStart({
