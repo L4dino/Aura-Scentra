@@ -19,7 +19,7 @@ import { ThemeProvider, ThemePrompt, useTheme } from "@/lib/theme";
 import { SplashScreen } from "@/components/SplashScreen";
 import { RealtimeNotifier } from "@/components/RealtimeNotifier";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
-import { registerServiceWorker } from "@/lib/pwa";
+import { activateServiceWorker } from "@/lib/pwa";
 
 function NotFoundComponent() {
   return (
@@ -104,7 +104,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "manifest", href: "/manifest.webmanifest", type: "application/manifest+json" },
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       { rel: "apple-touch-icon", href: "/icon-192.png" },
     ],
@@ -170,7 +170,7 @@ function ToasterThemed() {
 
 function PwaRegistration() {
   useEffect(() => {
-    registerServiceWorker();
+    activateServiceWorker();
   }, []);
   return null;
 }

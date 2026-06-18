@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { X, Download, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import {
   type BeforeInstallPromptEvent,
+  hasServiceWorkerControl,
   isStandalonePwa,
-  registerServiceWorker,
+  supportsNativePwaInstall,
 } from "@/lib/pwa";
 
 const DISMISS_KEY = "aura-pwa-install-dismissed";
@@ -23,37 +25,51 @@ function isDismissed(): boolean {
 
 export function PwaInstallPrompt() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [swReady, setSwReady] = useState(false);
+  const [swReady, setSwReady] = useState(() => hasServiceWorkerControl());
   const [show, setShow] = useState(false);
   const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (isStandalonePwa() || isDismissed()) return;
+    if (isStandalonePwa() || isDismissed() || !supportsNativePwaInstall()) return;
 
-    let cancelled = false;
+    let promptEvent: BeforeInstallPromptEvent | null = null;
 
-    registerServiceWorker().then((registration) => {
-      if (!cancelled && registration?.active) setSwReady(true);
-    });
+    const maybeShow = () => {
+      if (promptEvent && hasServiceWorkerControl()) {
+        setSwReady(true);
+        setDeferred(promptEvent);
+        setShow(true);
+      }
+    };
+
+    const onControl = () => {
+      if (hasServiceWorkerControl()) {
+        setSwReady(true);
+        maybeShow();
+      }
+    };
 
     const onBIP = (e: Event) => {
       e.preventDefault();
-      setDeferred(e as BeforeInstallPromptEvent);
-      setShow(true);
+      promptEvent = e as BeforeInstallPromptEvent;
+      maybeShow();
     };
 
     const onInstalled = () => {
       setShow(false);
       setDeferred(null);
       setInstalling(false);
+      toast.success("App instalada com sucesso");
     };
 
+    onControl();
+    navigator.serviceWorker?.addEventListener("controllerchange", onControl);
     window.addEventListener("beforeinstallprompt", onBIP);
     window.addEventListener("appinstalled", onInstalled);
 
     return () => {
-      cancelled = true;
+      navigator.serviceWorker?.removeEventListener("controllerchange", onControl);
       window.removeEventListener("beforeinstallprompt", onBIP);
       window.removeEventListener("appinstalled", onInstalled);
     };
@@ -71,14 +87,14 @@ export function PwaInstallPrompt() {
 
   const install = async () => {
     if (!deferred || installing) return;
+    if (!hasServiceWorkerControl()) {
+      toast.error("A app ainda está a preparar a instalação. Recarregue a página e tente novamente.");
+      return;
+    }
+
     setInstalling(true);
 
     try {
-      if (!swReady) {
-        const registration = await registerServiceWorker();
-        if (!registration?.active) throw new Error("Service worker not ready");
-      }
-
       await deferred.prompt();
       const choice = await deferred.userChoice;
 
@@ -88,14 +104,14 @@ export function PwaInstallPrompt() {
         dismiss();
       }
     } catch {
-      dismiss();
+      toast.error("Não foi possível instalar. Use o menu do browser: Instalar app.");
     } finally {
       setDeferred(null);
       setInstalling(false);
     }
   };
 
-  if (!show || !deferred) return null;
+  if (!show || !deferred || !swReady) return null;
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 px-3 pb-4 sm:left-auto sm:right-4 sm:max-w-sm">
@@ -105,7 +121,7 @@ export function PwaInstallPrompt() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">Instalar AURA SCENTRA</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Instale a app no seu dispositivo para acesso rápido, como uma aplicação nativa.
+              Instalação nativa no telemóvel ou PC — abre em ecrã completo, como uma app.
             </p>
             <div className="mt-3 flex gap-2">
               <button

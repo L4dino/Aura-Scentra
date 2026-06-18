@@ -1,24 +1,20 @@
 {
   "name": "AURA SCENTRA",
   "short_name": "AURA",
-  "id": "/",
+  "id": "/?source=pwa",
   "description": "Perfumes premium em Moçambique.",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
   "lang": "pt-MZ",
   "dir": "ltr",
   "categories": ["shopping", "lifestyle"],
   "background_color": "#1d1a15",
-  "theme_color": "#caa35a",
+  "theme_color": "#1d1a15",
   "orientation": "portrait-primary",
   "prefer_related_applications": false,
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]
 }
