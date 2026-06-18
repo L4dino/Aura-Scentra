@@ -19,6 +19,7 @@ import { ThemeProvider, ThemePrompt, useTheme } from "@/lib/theme";
 import { SplashScreen } from "@/components/SplashScreen";
 import { RealtimeNotifier } from "@/components/RealtimeNotifier";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
+import { registerServiceWorker } from "@/lib/pwa";
 
 function NotFoundComponent() {
   return (
@@ -169,26 +170,7 @@ function ToasterThemed() {
 
 function PwaRegistration() {
   useEffect(() => {
-    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
-    const isIframe = (() => {
-      try {
-        return window.self !== window.top;
-      } catch {
-        return true;
-      }
-    })();
-    const host = window.location.hostname;
-    const isPreview = host.includes("id-preview--") || host.includes("lovableproject.com") || host.includes("localhost");
-    if (isIframe || isPreview) {
-      navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
-      return;
-    }
-    const register = () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
-    };
-    if (document.readyState === "complete") register();
-    else window.addEventListener("load", register, { once: true });
-    return () => window.removeEventListener("load", register);
+    registerServiceWorker();
   }, []);
   return null;
 }

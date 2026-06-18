@@ -1,22 +1,13 @@
 import { useEffect, useState } from "react";
-import { X, Download, Share2 } from "lucide-react";
-
-type BeforeInstallPromptEvent = Event & {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-};
+import { X, Download, Loader2 } from "lucide-react";
+import {
+  type BeforeInstallPromptEvent,
+  isStandalonePwa,
+  registerServiceWorker,
+} from "@/lib/pwa";
 
 const DISMISS_KEY = "aura-pwa-install-dismissed";
 const DISMISS_DAYS = 7;
-
-function isStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  return (
-    window.matchMedia?.("(display-mode: standalone)").matches ||
-    // @ts-expect-error iOS Safari
-    window.navigator.standalone === true
-  );
-}
 
 function isDismissed(): boolean {
   try {
@@ -32,44 +23,37 @@ function isDismissed(): boolean {
 
 export function PwaInstallPrompt() {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
+  const [swReady, setSwReady] = useState(false);
   const [show, setShow] = useState(false);
-  const [iosHint, setIosHint] = useState(false);
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (isStandalone() || isDismissed()) return;
+    if (isStandalonePwa() || isDismissed()) return;
 
-    const ua = window.navigator.userAgent;
-    const isIOS = /iPad|iPhone|iPod/.test(ua) && !/MSStream/.test(ua);
-    const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua);
+    let cancelled = false;
+
+    registerServiceWorker().then((registration) => {
+      if (!cancelled && registration?.active) setSwReady(true);
+    });
 
     const onBIP = (e: Event) => {
       e.preventDefault();
       setDeferred(e as BeforeInstallPromptEvent);
       setShow(true);
     };
+
     const onInstalled = () => {
       setShow(false);
       setDeferred(null);
+      setInstalling(false);
     };
 
     window.addEventListener("beforeinstallprompt", onBIP);
     window.addEventListener("appinstalled", onInstalled);
 
-    // iOS doesn't fire beforeinstallprompt — show manual hint
-    if (isIOS && isSafari) {
-      const t = setTimeout(() => {
-        setIosHint(true);
-        setShow(true);
-      }, 3000);
-      return () => {
-        clearTimeout(t);
-        window.removeEventListener("beforeinstallprompt", onBIP);
-        window.removeEventListener("appinstalled", onInstalled);
-      };
-    }
-
     return () => {
+      cancelled = true;
       window.removeEventListener("beforeinstallprompt", onBIP);
       window.removeEventListener("appinstalled", onInstalled);
     };
@@ -82,26 +66,36 @@ export function PwaInstallPrompt() {
       /* ignore */
     }
     setShow(false);
+    setInstalling(false);
   };
 
   const install = async () => {
-    if (!deferred) return;
+    if (!deferred || installing) return;
+    setInstalling(true);
+
     try {
+      if (!swReady) {
+        const registration = await registerServiceWorker();
+        if (!registration?.active) throw new Error("Service worker not ready");
+      }
+
       await deferred.prompt();
       const choice = await deferred.userChoice;
+
       if (choice.outcome === "accepted") {
         setShow(false);
       } else {
         dismiss();
       }
     } catch {
-      /* ignore */
+      dismiss();
     } finally {
       setDeferred(null);
+      setInstalling(false);
     }
   };
 
-  if (!show) return null;
+  if (!show || !deferred) return null;
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 px-3 pb-4 sm:left-auto sm:right-4 sm:max-w-sm">
@@ -110,38 +104,36 @@ export function PwaInstallPrompt() {
           <img src="/icon-192.png" alt="" className="h-12 w-12 rounded-xl" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">Instalar AURA SCENTRA</p>
-            {iosHint ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Toque em <Share2 className="mx-1 inline h-3.5 w-3.5" /> Partilhar e depois
-                em <strong>Adicionar ao Ecrã Principal</strong>.
-              </p>
-            ) : (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Tenha acesso rápido e a melhor experiência diretamente do seu ecrã principal.
-              </p>
-            )}
-            {!iosHint && (
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={install}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
+            <p className="mt-1 text-xs text-muted-foreground">
+              Instale a app no seu dispositivo para acesso rápido, como uma aplicação nativa.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={install}
+                disabled={installing}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+              >
+                {installing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
                   <Download className="h-3.5 w-3.5" />
-                  Instalar
-                </button>
-                <button
-                  onClick={dismiss}
-                  className="rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
-                >
-                  Agora não
-                </button>
-              </div>
-            )}
+                )}
+                {installing ? "A instalar…" : "Instalar app"}
+              </button>
+              <button
+                onClick={dismiss}
+                disabled={installing}
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-60"
+              >
+                Agora não
+              </button>
+            </div>
           </div>
           <button
             onClick={dismiss}
+            disabled={installing}
             aria-label="Fechar"
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
           >
             <X className="h-4 w-4" />
           </button>
