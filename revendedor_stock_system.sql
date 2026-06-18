@@ -9,7 +9,8 @@ ALTER TABLE public.produtos
   ADD COLUMN IF NOT EXISTS preco_venda_sugerido numeric,
   ADD COLUMN IF NOT EXISTS qty_minima_revenda int DEFAULT 1,
   ADD COLUMN IF NOT EXISTS disponivel_com_stock boolean DEFAULT true,
-  ADD COLUMN IF NOT EXISTS disponivel_sem_stock boolean DEFAULT true;
+  ADD COLUMN IF NOT EXISTS disponivel_sem_stock boolean DEFAULT true,
+  ADD COLUMN IF NOT EXISTS disponivel_catalogo boolean DEFAULT true;
 
 -- 2) Tipo de nhoguista (sem_stock vs com_stock)
 ALTER TABLE public.nhoguistas

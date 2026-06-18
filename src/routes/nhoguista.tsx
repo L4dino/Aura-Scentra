@@ -12,6 +12,7 @@ import { track } from "@/lib/events";
 import { NHOGUISTA_SEM_STOCK_SETTING, NHOGUISTA_COM_STOCK_SETTING, getBooleanSetting } from "@/lib/settings";
 import { DashboardComStock } from "@/components/DashboardComStock";
 import { ModeSwitchButton } from "@/components/ModeSwitchButton";
+import { produtoVisivelEm } from "@/lib/produto-visibilidade";
 
 export const Route = createFileRoute("/nhoguista")({ component: Page });
 
@@ -149,7 +150,7 @@ function Dashboard({ n, onRefresh }: { n: Nhoguista; onRefresh: () => void }) {
     supabase.from("produtos").select("*").order("created_at", { ascending: false })
       .then(({ data }) => {
         const all = (data ?? []) as Produto[];
-        setProdutos(all.filter((p) => p.disponivel_sem_stock !== false));
+        setProdutos(all.filter((p) => produtoVisivelEm(p, "sem_stock")));
       });
     supabase.from("pedidos").select("*").eq("nhoguista_codigo", n.codigo).order("created_at", { ascending: false })
       .then(({ data }) => setPedidos((data ?? []) as Pedido[]));

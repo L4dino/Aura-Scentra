@@ -9,6 +9,7 @@ import { Plus, Minus, Trash2, ShoppingBag, Send, TrendingUp, AlertCircle, Clipbo
 import { buildRequisicaoMessage, whatsappLink } from "@/lib/whatsapp";
 import { useAuth } from "@/lib/auth";
 import { ModeSwitchButton } from "@/components/ModeSwitchButton";
+import { produtoVisivelEm } from "@/lib/produto-visibilidade";
 
 export function DashboardComStock({ n, onRefresh }: { n: Nhoguista; onRefresh?: () => void }) {
   const { profile } = useAuth();
@@ -24,7 +25,7 @@ export function DashboardComStock({ n, onRefresh }: { n: Nhoguista; onRefresh?: 
       .then(({ data }) => {
         const all = (data ?? []) as Produto[];
         // Mostrar apenas produtos disponíveis para com_stock (default true)
-        setProdutos(all.filter((p) => p.disponivel_com_stock !== false));
+        setProdutos(all.filter((p) => produtoVisivelEm(p, "com_stock")));
       });
   }, []);
 

@@ -22,6 +22,7 @@ export interface Produto {
   qty_minima_revenda?: number | null;
   disponivel_com_stock?: boolean | null;
   disponivel_sem_stock?: boolean | null;
+  disponivel_catalogo?: boolean | null;
 }
 
 export interface Banner {

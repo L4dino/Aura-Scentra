@@ -12,6 +12,7 @@ import { NHOGUISTA_SEM_STOCK_SETTING, NHOGUISTA_COM_STOCK_SETTING, getBooleanSet
 import { normalizeRequisicaoItems } from "@/lib/types";
 import type { Requisicao } from "@/lib/types";
 import { whatsappPedidoLink, whatsappLink } from "@/lib/whatsapp";
+import { produtoVisivelEm } from "@/lib/produto-visibilidade";
 
 export const Route = createFileRoute("/admin")({ component: Admin });
 
@@ -127,7 +128,7 @@ const emptyForm = {
   comissao_valor: "0", avaliacao: "4.8", num_avaliacoes: "0",
   provincias: [] as string[], todas_regioes: true,
   preco_revendedor: "", preco_venda_sugerido: "", qty_minima_revenda: "1",
-  disponivel_com_stock: true, disponivel_sem_stock: true,
+  disponivel_com_stock: true, disponivel_sem_stock: true, disponivel_catalogo: true,
 };
 
 function Produtos() {
@@ -161,6 +162,14 @@ function Produtos() {
               <p className="truncate font-medium">{p.nome}</p>
               <p className="text-xs text-muted-foreground">{p.marca} • {formatMZN(p.preco)}</p>
               <p className="text-[10px] uppercase tracking-widest text-gold">{p.categoria} • stock {p.stock} • comissão {formatMZN(p.comissao_valor ?? 0)}</p>
+              <p className="mt-1 flex flex-wrap gap-1">
+                {produtoVisivelEm(p, "catalogo") && <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">Catálogo</span>}
+                {produtoVisivelEm(p, "com_stock") && <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">Com stock</span>}
+                {produtoVisivelEm(p, "sem_stock") && <span className="rounded bg-secondary px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">Sem stock</span>}
+                {!produtoVisivelEm(p, "catalogo") && !produtoVisivelEm(p, "com_stock") && !produtoVisivelEm(p, "sem_stock") && (
+                  <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-destructive">Oculto</span>
+                )}
+              </p>
             </div>
             <button onClick={() => { setEditing(p); setOpen(true); }} className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-gold"><Pencil className="h-4 w-4" /></button>
             <button onClick={() => del(p.id)} className="rounded p-2 text-muted-foreground hover:bg-secondary hover:text-destructive"><Trash2 className="h-4 w-4" /></button>
@@ -189,6 +198,7 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
     qty_minima_revenda: String(initial.qty_minima_revenda ?? 1),
     disponivel_com_stock: initial.disponivel_com_stock !== false,
     disponivel_sem_stock: initial.disponivel_sem_stock !== false,
+    disponivel_catalogo: initial.disponivel_catalogo !== false,
   } : emptyForm);
   const [busy, setBusy] = useState(false);
 
@@ -219,6 +229,7 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
       qty_minima_revenda: Number(form.qty_minima_revenda) || 1,
       disponivel_com_stock: form.disponivel_com_stock,
       disponivel_sem_stock: form.disponivel_sem_stock,
+      disponivel_catalogo: form.disponivel_catalogo,
     };
     if (!form.todas_regioes && selectedProvincias.length === 0) {
       setBusy(false);
@@ -228,16 +239,27 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
       ? supabase.from("produtos").update(p).eq("id", initial.id)
       : supabase.from("produtos").insert(p);
     let { error } = await tryOp(payload);
-    if (error && /column .*"?(preco_revendedor|preco_venda_sugerido|qty_minima_revenda|disponivel_com_stock|disponivel_sem_stock)"?/i.test(error.message)) {
+    if (error && /column .*"?(preco_revendedor|preco_venda_sugerido|qty_minima_revenda|disponivel_com_stock|disponivel_sem_stock|disponivel_catalogo)"?/i.test(error.message)) {
       // Fallback se as novas colunas ainda não existirem
-      const { preco_revendedor: _a, preco_venda_sugerido: _b, qty_minima_revenda: _c, disponivel_com_stock: _d, disponivel_sem_stock: _e, ...legacy } = payload;
-      void _a; void _b; void _c; void _d; void _e;
+      const { preco_revendedor: _a, preco_venda_sugerido: _b, qty_minima_revenda: _c, disponivel_com_stock: _d, disponivel_sem_stock: _e, disponivel_catalogo: _f, ...legacy } = payload;
+      void _a; void _b; void _c; void _d; void _e; void _f;
       const retry = await tryOp(legacy);
       error = retry.error;
     }
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success(initial ? "Produto atualizado" : "Produto criado");
+    onSaved();
+  };
+
+  const remove = async () => {
+    if (!initial) return;
+    if (!confirm(`Eliminar "${initial.nome}"? Esta acção não pode ser desfeita.`)) return;
+    setBusy(true);
+    const { error } = await supabase.from("produtos").delete().eq("id", initial.id);
+    setBusy(false);
+    if (error) return toast.error(error.message);
+    toast.success("Produto eliminado");
     onSaved();
   };
 
@@ -287,19 +309,35 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
                 <span className="text-muted-foreground">Mostrar em destaque</span>
               </label>
             </Field>
-            <Field label="Disponível para Nhoguista com stock">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.disponivel_com_stock} onChange={(e) => F("disponivel_com_stock", e.target.checked)} />
-                <span className="text-muted-foreground">Visível no painel com stock</span>
-              </label>
-            </Field>
-            <Field label="Disponível para Nhoguista sem stock">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.disponivel_sem_stock} onChange={(e) => F("disponivel_sem_stock", e.target.checked)} />
-                <span className="text-muted-foreground">Visível no painel sem stock</span>
-              </label>
-            </Field>
           </div>
+          <Field label="Visibilidade do produto">
+            <p className="mb-2 text-xs text-muted-foreground">
+              Escolha onde o produto aparece. Se nenhuma opção estiver activa, fica oculto em todo o site.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm transition ${form.disponivel_catalogo ? "border-gold bg-gold/5" : "border-border"}`}>
+                <input type="checkbox" className="mt-0.5" checked={form.disponivel_catalogo} onChange={(e) => F("disponivel_catalogo", e.target.checked)} />
+                <span>
+                  <span className="block font-medium text-foreground">Catálogo normal</span>
+                  <span className="text-xs text-muted-foreground">Site público e loja</span>
+                </span>
+              </label>
+              <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm transition ${form.disponivel_com_stock ? "border-gold bg-gold/5" : "border-border"}`}>
+                <input type="checkbox" className="mt-0.5" checked={form.disponivel_com_stock} onChange={(e) => F("disponivel_com_stock", e.target.checked)} />
+                <span>
+                  <span className="block font-medium text-foreground">Nhoguista com stock</span>
+                  <span className="text-xs text-muted-foreground">Painel de revendedor</span>
+                </span>
+              </label>
+              <label className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-sm transition ${form.disponivel_sem_stock ? "border-gold bg-gold/5" : "border-border"}`}>
+                <input type="checkbox" className="mt-0.5" checked={form.disponivel_sem_stock} onChange={(e) => F("disponivel_sem_stock", e.target.checked)} />
+                <span>
+                  <span className="block font-medium text-foreground">Nhoguista sem stock</span>
+                  <span className="text-xs text-muted-foreground">Painel de partilha</span>
+                </span>
+              </label>
+            </div>
+          </Field>
           <Field label="Descrição">
             <textarea rows={3} className={inp} value={form.descricao} onChange={(e) => F("descricao", e.target.value)} />
           </Field>
@@ -341,9 +379,24 @@ function ProductModal({ initial, onClose, onSaved }: { initial: Produto | null; 
             {form.imagem_url && <img src={form.imagem_url} alt="" className="mt-3 h-32 w-32 rounded-lg object-cover" />}
           </Field>
         </div>
-        <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-4">
-          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancelar</button>
-          <button onClick={save} disabled={busy} className="rounded-md bg-gold px-6 py-2 text-sm font-semibold uppercase tracking-widest text-primary-foreground disabled:opacity-60">{busy ? "A guardar…" : "Guardar"}</button>
+        <div className="sticky bottom-0 flex items-center justify-between gap-2 border-t border-border bg-card px-5 py-4">
+          <div>
+            {initial && (
+              <button
+                type="button"
+                onClick={remove}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-4 py-2 text-sm text-destructive transition hover:bg-destructive/10 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                Eliminar
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancelar</button>
+            <button onClick={save} disabled={busy} className="rounded-md bg-gold px-6 py-2 text-sm font-semibold uppercase tracking-widest text-primary-foreground disabled:opacity-60">{busy ? "A guardar…" : "Guardar"}</button>
+          </div>
         </div>
       </div>
     </div>

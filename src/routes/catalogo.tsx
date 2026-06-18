@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Produto } from "@/lib/types";
+import { produtoVisivelEm } from "@/lib/produto-visibilidade";
 import { ProductCard } from "@/components/ProductCard";
 import { z } from "zod";
 import { zodValidator } from "@tanstack/zod-adapter";
@@ -63,6 +64,7 @@ function Catalogo() {
       if (tag) q = q.eq("tag", tag);
       const { data, count } = await q;
       let items = (data ?? []) as Produto[];
+      items = items.filter((p) => produtoVisivelEm(p, "catalogo"));
       if (regionActive && provincia) {
         items = items.filter((p) => isAvailableInRegion(p.provincias ?? null, provincia));
       }

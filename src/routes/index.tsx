@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Produto } from "@/lib/types";
+import { produtoVisivelEm } from "@/lib/produto-visibilidade";
 import { ProductCard } from "@/components/ProductCard";
 import { ArrowRight, Truck, ShieldCheck, Award } from "lucide-react";
 
@@ -19,7 +20,7 @@ function Index() {
         .eq("destaque", true)
         .order("created_at", { ascending: false })
         .limit(6);
-      return (data ?? []) as Produto[];
+      return ((data ?? []) as Produto[]).filter((p) => produtoVisivelEm(p, "catalogo"));
     },
   });
 
